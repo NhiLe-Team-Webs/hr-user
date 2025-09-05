@@ -1,0 +1,106 @@
+{
+  "common": {
+    "teamName": "NhiLe Team",
+    "coreValue1": "Heart",
+    "coreValue2": "Vision",
+    "coreValue3": "Integrity",
+    "learnMore": "Learn More",
+    "languageInfo": "VN/EN",
+    "timeInfo": "Duration: 20-35 mins",
+    "privacyInfo": "Your data is secured"
+  },
+  "landingScreen": {
+    "welcomeTitle": "Welcome to the Talent Discovery Journey",
+    "welcomeSubtitle": "This isn't just a test. It's a journey for us to discover together the perfect role that aligns with your talents and values within the NhiLe Team ecosystem.",
+    "coreValuesTitle": "OUR CORE VALUES",
+    "ctaStart": "Explore your journey →",
+    "howItWorksTitle": "Your Journey",
+    "howItWorksSubtitle": "A transparent process designed to help you shine.",
+    "howItWorks1Title": "1. Complete the Assessment",
+    "howItWorks1Text": "Spend 20-35 minutes answering situational questions to help us understand you better.",
+    "howItWorks2Title": "2. Get Instant Feedback",
+    "howItWorks2Text": "Instantly see your key strengths and areas where you can grow.",
+    "howItWorks3Title": "3. Find the Right Position",
+    "howItWorks3Text": "We will suggest the most suitable path, from vocational training and volunteering to a full-time position.",
+    "whyItMattersTitle": "Build a Team with Shared Direction",
+    "whyItMattersSubtitle": "We believe that alignment in values and attitude is more important than experience. Data shows this approach builds more cohesive and effective teams.",
+    "stat1Title": "90%",
+    "stat1Subtitle": "Better Fit",
+    "stat1Text": "Candidates have a higher rate of alignment with our team's culture and core values.",
+    "stat2Title": "50%",
+    "stat2Subtitle": "Faster",
+    "stat2Text": "Save interview time by focusing on individuals who are a true fit.",
+    "stat3Title": "Top 5%",
+    "stat3Subtitle": "High Performance",
+    "stat3Text": "Individuals who align with our values tend to have superior work performance.",
+    "exploreTitle": "Discover Opportunities in NhiLe Team",
+    "exploreSubtitle": "No matter what stage you are at, there's always a place for you to belong and contribute.",
+    "volunteerTitle": "Volunteer Group",
+    "volunteerText": "Dedicate your time to meaningful activities, support disadvantaged children, and spread positive values to the community.",
+    "vocationalTitle": "Vocational Training Group",
+    "vocationalText": "Equip yourself with essential skills in technology and AI to confidently change your life, open up career opportunities at NhiLe Holding, and contribute to society.",
+    "stat4Subtitle": "More Cohesive",
+    "stat4Text": "Build a positive work environment and minimize unnecessary conflicts."
+  },
+  "loginScreen": {
+    "title": "Create Account or Log in",
+    "subtitle": "Choose the most convenient method to continue.",
+    "googleCta": "Continue with Google",
+    "emailCta": "Continue with Email OTP"
+  },
+  "roleSelectionScreen": {
+    "title": "Select the position you're interested in",
+    "subtitle": "We will assign the most suitable assessment based on your choice.",
+    "role1Title": "Content Creator",
+    "role1Text": "Measures creativity, linguistic ability, and trend awareness.",
+    "role2Title": "Customer Support",
+    "role2Text": "Evaluates empathy, problem-solving skills, and patience.",
+    "role3Title": "Operations / Admin",
+    "role3Text": "Focuses on logical thinking, prioritizing tasks, and process building."
+  },
+  "assessmentScreen": {
+    "assessmentTitle": "Assessment",
+    "progressLabel": "Progress",
+    "questionLabel": "Question",
+    "previousBtn": "Previous",
+    "nextBtn": "Next",
+    "finishBtn": "Finish",
+    "noAssessment": "This position currently has no assessment."
+  },
+  "resultScreen": {
+    "title": "Thank you for completing!",
+    "subtitle": "Here is a quick summary of your strengths.",
+    "strengthsTitle": "Top 3 standout strengths:",
+    "nextStepsTitle": "Next Steps",
+    "successText": "Your results are impressive! As a next step, we invite you to schedule a direct interview with the team.",
+    "successCta": "Schedule Interview",
+    "tryoutText": "You have shown great potential. To understand your practical skills better, we invite you to join our Tryout/Volunteer Program.",
+    "tryoutCta": "Continue to Tryout Program",
+    "thankyou": "Thank you for completing!"
+  },
+  "tryoutScreen": {
+    "title": "Welcome to the Tryout Center",
+    "subtitle": "Complete the following tasks to demonstrate your skills. Deadline:",
+    "deadline": "7 days from now",
+    "task1Title": "Task 1: Handle 5 simulated tickets",
+    "task1Text": "You will enter a simulated chat system and handle 5 sample tickets of increasing difficulty.",
+    "task1Estimate": "Est. Time: 2 hours",
+    "task2Title": "Task 2: Suggest process improvements",
+    "task2Text": "Based on the tickets you handled, write a short proposal (1 page) to improve a flaw in the current customer support process.",
+    "task2Estimate": "Est. Time: 1.5 hours",
+    "startBtn": "Start"
+  },
+  "roles": {
+    "Content Creator": "Content Creator",
+    "Customer Support": "Customer Support",
+    "Operations": "Operations / Admin"
+  },
+  "strengths": {
+    "strength1": "Creative Thinking",
+    "strength2": "Sharp Problem-Solving",
+    "strength3": "Effective Communication",
+    "strength4": "Collaborative Spirit",
+    "strength5": "Attention to Detail",
+    "strength6": "Customer Empathy"
+  }
+}

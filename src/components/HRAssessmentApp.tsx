@@ -8,6 +8,8 @@ import { Button } from './ui/button';
 import { assessmentData } from '../data/assessmentData';
 import { Role, Screen, UserAnswers } from '../types/assessment';
 import { AnimatePresence, motion } from 'framer-motion';
+import LanguageSwitcher from './LanguageSwitcher';
+import { useLanguage } from '../hooks/useLanguage';
 
 const HRAssessmentApp = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('landing');
@@ -16,6 +18,8 @@ const HRAssessmentApp = () => {
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
   const [timer, setTimer] = useState(0);
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
+  const [language, setLanguage] = useState<'vi' | 'en'>('vi');
+  const { lang, setLang, t } = useLanguage();
 
   const goToScreen = (screen: Screen) => {
     setCurrentScreen(screen);
@@ -92,8 +96,12 @@ const HRAssessmentApp = () => {
 
   const getRandomStrengths = () => {
     const strengths = [
-      'Tư duy sáng tạo', 'Giải quyết vấn đề nhanh nhạy', 'Giao tiếp hiệu quả', 
-      'Tinh thần hợp tác', 'Chú trọng chi tiết', 'Đồng cảm với khách hàng'
+      t('strengths.strength1'),
+      t('strengths.strength2'),
+      t('strengths.strength3'),
+      t('strengths.strength4'),
+      t('strengths.strength5'),
+      t('strengths.strength6')
     ];
     return strengths.sort(() => 0.5 - Math.random()).slice(0, 3);
   };
@@ -101,7 +109,7 @@ const HRAssessmentApp = () => {
   const renderQuestion = () => {
     if (!currentRole) return null;
     const questions = assessmentData[currentRole].questions;
-    if (questions.length === 0) return <p>Vị trí này hiện chưa có bài đánh giá.</p>;
+    if (questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
     
     const question = questions[currentQuestionIndex];
     
@@ -148,7 +156,7 @@ const HRAssessmentApp = () => {
     return (
       <div>
         <div className="mb-8">
-          <h3 className="font-semibold text-lg mb-4">Top 3 điểm mạnh nổi bật:</h3>
+          <h3 className="font-semibold text-lg mb-4">{t('resultScreen.strengthsTitle')}</h3>
           <div className="flex justify-center flex-wrap gap-4">
             {strengths.map((strength, index) => (
               <div key={index} className="bg-green-100 text-green-800 font-medium px-4 py-2 rounded-full">
@@ -159,24 +167,23 @@ const HRAssessmentApp = () => {
         </div>
         
         <div className="mt-8 pt-8 border-t border-border/80">
-          <h3 className="font-semibold text-xl mb-2 tracking-tight">Bước tiếp theo</h3>
+          <h3 className="font-semibold text-xl mb-2 tracking-tight">{t('resultScreen.nextStepsTitle')}</h3>
           {isAPlayer ? (
             <div>
               <p className="text-muted-foreground my-6 text-lg">
-                Kết quả của bạn rất ấn tượng! Bước tiếp theo, chúng tôi mời bạn đặt lịch phỏng vấn trực tiếp với đội nhóm.
+                {t('resultScreen.successText')}
               </p>
               <Button className="apple-button mt-4">
-                Đặt lịch phỏng vấn
+                {t('resultScreen.successCta')}
               </Button>
             </div>
           ) : (
             <div>
               <p className="text-muted-foreground my-6 text-lg">
-                Bạn đã thể hiện nhiều tiềm năng. Để hiểu rõ hơn về kỹ năng thực tế của bạn, 
-                chúng tôi mời bạn tham gia vào Kênh Thử việc/Tình nguyện.
+                {t('resultScreen.tryoutText')}
               </p>
               <Button onClick={() => goToScreen('tryout')} className="apple-button mt-4">
-                Tiếp tục đến phần Thử việc
+                {t('resultScreen.tryoutCta')}
               </Button>
             </div>
           )}
@@ -193,13 +200,9 @@ const HRAssessmentApp = () => {
         <header className="w-full max-w-6xl mx-auto my-6 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <Heart className="h-7 w-7 text-neutral-900 dark:text-neutral-50" />
-            <h1 className="font-bold text-2xl tracking-tight">NhiLe Team</h1>
+            <h1>{t('common.teamName')}</h1>
           </div>
-          <div className="flex gap-2 text-sm">
-            <button className="font-semibold text-primary">VN</button>
-            <span className="text-muted-foreground">|</span>
-            <button className="text-muted-foreground hover:text-primary">EN</button>
-          </div>
+          <LanguageSwitcher />
         </header>
 
         <main className="w-full max-w-6xl mx-auto">
@@ -215,35 +218,34 @@ const HRAssessmentApp = () => {
               >
                 <div className="text-center apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 md:p-16">
                   <h2 className="text-4xl md:text-5xl font-bold mb-4 tracking-tight">
-                    Chào mừng bạn đến với Hành trình Khám phá Tài năng
+                    {t('landingScreen.welcomeTitle')}
                   </h2>
                   <p className="text-muted-foreground mb-8 max-w-3xl mx-auto text-lg">
-                    Đây không chỉ là một bài kiểm tra. Đây là hành trình để chúng ta cùng nhau khám phá 
-                    vị trí phù hợp nhất với tài năng và giá trị của bạn trong hệ sinh thái của NhiLe Team.
+                    {t('landingScreen.welcomeSubtitle')}
                   </p>
                   
                   <div className="my-10 py-8 border-y border-border/80">
                     <h3 className="text-sm font-semibold uppercase text-muted-foreground mb-6 tracking-wider">
-                      GIÁ TRỊ CỐT LÕI CỦA CHÚNG TÔI
+                      {t('landingScreen.coreValuesTitle')}
                     </h3>
                     <div className="flex justify-center items-center gap-8 md:gap-16">
                       <div className="flex flex-col items-center gap-3 cursor-pointer transition-transform duration-200 hover:scale-110">
                         <div className="bg-primary/10 text-primary p-4 rounded-2xl">
                           <Heart className="w-7 h-7" />
                         </div>
-                        <span className="font-semibold text-lg">Tâm</span>
+                        <span className="font-semibold text-lg">{t('common.coreValue1')}</span>
                       </div>
                       <div className="flex flex-col items-center gap-3 cursor-pointer transition-transform duration-200 hover:scale-110">
                         <div className="bg-primary/10 text-primary p-4 rounded-2xl">
                           <Eye className="w-7 h-7" />
                         </div>
-                        <span className="font-semibold text-lg">Tầm</span>
+                        <span className="font-semibold text-lg">{t('common.coreValue2')}</span>
                       </div>
                       <div className="flex flex-col items-center gap-3 cursor-pointer transition-transform duration-200 hover:scale-110">
                         <div className="bg-primary/10 text-primary p-4 rounded-2xl">
                           <Gem className="w-7 h-7" />
                         </div>
-                        <span className="font-semibold text-lg">Đức</span>
+                        <span className="font-semibold text-lg">{t('common.coreValue3')}</span>
                       </div>
                     </div>
                   </div>
@@ -255,11 +257,11 @@ const HRAssessmentApp = () => {
                     </div>
                     <div className="flex items-center gap-2 bg-muted text-muted-foreground px-3 py-1.5 rounded-full text-sm">
                       <Clock className="w-4 h-4" />
-                      <span>Thời gian: 20-35 phút</span>
+                      <span>{t('common.timeInfo')}</span>
                     </div>
                     <div className="flex items-center gap-2 bg-muted text-muted-foreground px-3 py-1.5 rounded-full text-sm">
                       <Shield className="w-4 h-4" />
-                      <span>Dữ liệu của bạn được bảo mật</span>
+                      <span>{t('common.privacyInfo')}</span>
                     </div>
                   </div>
                   
@@ -267,42 +269,42 @@ const HRAssessmentApp = () => {
                     onClick={() => goToScreen('login')} 
                     className="apple-button"
                   >
-                    Khám phá hành trình của bạn →
+                    {t('landingScreen.ctaStart')}
                   </Button>
                 </div>
 
                 {/* Section: How it works */}
                 <div className="py-16 md:py-24 text-center">
-                  <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight">Hành trình của bạn</h2>
+                  <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight">{t('landingScreen.howItWorksTitle')}</h2>
                   <p className="text-muted-foreground mb-12 max-w-2xl mx-auto text-lg">
-                    Một quy trình minh bạch được thiết kế để giúp bạn tỏa sáng.
+                    {t('landingScreen.howItWorksSubtitle')}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                     <div className="apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
                       <div className="bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-50 p-3 rounded-xl inline-block mb-4">
                         <FileCheck2 className="w-8 h-8" />
                       </div>
-                      <h3 className="font-bold text-xl mb-2">1. Hoàn thành Đánh giá</h3>
+                      <h3 className="font-bold text-xl mb-2">{t('landingScreen.howItWorks1Title')}</h3>
                       <p className="text-muted-foreground">
-                        Dành 20-35 phút trả lời các câu hỏi tình huống giúp chúng tôi hiểu rõ hơn về bạn.
+                        {t('landingScreen.howItWorks1Description')}
                       </p>
                     </div>
                     <div className="apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
                       <div className="bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-50 p-3 rounded-xl inline-block mb-4">
                         <BarChart3 className="w-8 h-8" />
                       </div>
-                      <h3 className="font-bold text-xl mb-2">2. Nhận Phản hồi Tức thì</h3>
+                      <h3 className="font-bold text-xl mb-2">{t('landingScreen.howItWorks2Title')}</h3>
                       <p className="text-muted-foreground">
-                        Xem ngay các điểm mạnh nổi bật và lĩnh vực bạn có thể phát triển thêm.
+                        {t('landingScreen.howItWorks2Text')}
                       </p>
                     </div>
                     <div className="apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2">
                       <div className="bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-50 p-3 rounded-xl inline-block mb-4">
                         <MapPin className="w-8 h-8" />
                       </div>
-                      <h3 className="font-bold text-xl mb-2">3. Tìm Đúng Vị trí</h3>
+                      <h3 className="font-bold text-xl mb-2">{t('landingScreen.howItWorks3Title')}</h3>
                       <p className="text-muted-foreground">
-                        Chúng tôi sẽ đề xuất con đường phù hợp nhất, từ học nghề, tình nguyện đến vị trí chính thức.
+                        {t('landingScreen.howItWorks3Text')}
                       </p>
                     </div>
                   </div>
@@ -312,27 +314,26 @@ const HRAssessmentApp = () => {
                 <div className="py-16 md:py-24 bg-card rounded-3xl px-8">
                   <div className="text-center">
                     <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight">
-                      Xây dựng một đội ngũ cùng chung chí hướng
+                      {t('landingScreen.whyItMattersTitle')}
                     </h2>
                     <p className="text-muted-foreground mb-12 max-w-3xl mx-auto text-lg">
-                      Chúng tôi tin rằng sự phù hợp về giá trị và thái độ quan trọng hơn kinh nghiệm. 
-                      Dữ liệu cho thấy cách tiếp cận này tạo ra những đội ngũ gắn kết và hiệu quả hơn.
+                      {t('landingScreen.whyItMattersSubtitle')}
                     </p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-center">
                     <div className="space-y-8 text-center md:text-left">
                       <div>
                         <h3 className="text-4xl font-bold text-primary">90%</h3>
-                        <p className="font-semibold">Phù hợp hơn</p>
+                        <p className="font-semibold">{t('landingScreen.stat1Subtitle')}</p>
                         <p className="text-muted-foreground">
-                          Ứng viên có tỷ lệ phù hợp với văn hóa và giá trị cốt lõi của team cao hơn.
+                          {t('landingScreen.stat1Text')}
                         </p>
                       </div>
                       <div>
                         <h3 className="text-4xl font-bold text-primary">50%</h3>
-                        <p className="font-semibold">Nhanh hơn</p>
+                        <p className="font-semibold">{t('landingScreen.stat2Subtitle')}</p>
                         <p className="text-muted-foreground">
-                          Tiết kiệm thời gian phỏng vấn, tập trung vào những người thực sự phù hợp.
+                          {t('landingScreen.stat2Text')}
                         </p>
                       </div>
                     </div>
@@ -355,16 +356,16 @@ const HRAssessmentApp = () => {
                     <div className="space-y-8 text-center md:text-left">
                       <div>
                         <h3 className="text-4xl font-bold text-primary">88%</h3>
-                        <p className="font-semibold">Gắn kết hơn</p>
+                        <p className="font-semibold">{t('landingScreen.stat4Subtitle')}</p>
                         <p className="text-muted-foreground">
-                          Xây dựng một môi trường làm việc tích cực, giảm thiểu xung đột không đáng có.
+                          {t('landingScreen.stat4Text')}
                         </p>
                       </div>
                       <div>
                         <h3 className="text-4xl font-bold text-primary">Top 5%</h3>
-                        <p className="font-semibold">Hiệu suất cao</p>
+                        <p className="font-semibold">{t('landingScreen.stat3Subtitle')}</p>
                         <p className="text-muted-foreground">
-                          Những người phù hợp về giá trị thường có hiệu suất làm việc vượt trội.
+                          {t('landingScreen.stat3Text')}
                         </p>
                       </div>
                     </div>
@@ -374,36 +375,34 @@ const HRAssessmentApp = () => {
                 {/* Section: Explore communities */}
                 <div className="py-16 md:py-24 text-center">
                   <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight">
-                    Khám phá các cơ hội trong NhiLe Team
+                    {t('landingScreen.exploreTitle')}
                   </h2>
                   <p className="text-muted-foreground mb-12 max-w-2xl mx-auto text-lg">
-                    Dù bạn ở giai đoạn nào, luôn có một nơi để bạn thuộc về và cống hiến.
+                    {t('landingScreen.exploreSubtitle')}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 text-left flex flex-col">
                       <div className="bg-primary/10 text-primary p-3 rounded-xl inline-block mb-4 self-start">
                         <Users className="w-8 h-8" />
                       </div>
-                      <h3 className="font-bold text-2xl mb-2">Nhóm Tình Nguyện</h3>
+                      <h3 className="font-bold text-2xl mb-2">{t('landingScreen.volunteerTitle')}</h3>
                       <p className="text-muted-foreground flex-grow">
-                        Dành thời gian của bạn để cống hiến cho các hoạt động ý nghĩa, hỗ trợ trẻ em có hoàn cảnh khó khăn 
-                        và lan tỏa giá trị tích cực đến cộng đồng.
+                        {t('landingScreen.volunteerText')}
                       </p>
                       <Button variant="secondary" className="mt-6 self-start">
-                        Tìm hiểu thêm
+                        {t('common.learnMore')}
                       </Button>
                     </div>
                     <div className="apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 text-left flex flex-col">
                       <div className="bg-primary/10 text-primary p-3 rounded-xl inline-block mb-4 self-start">
                         <GraduationCap className="w-8 h-8" />
                       </div>
-                      <h3 className="font-bold text-2xl mb-2">Nhóm Học Nghề</h3>
+                      <h3 className="font-bold text-2xl mb-2">{t('landingScreen.vocationalTitle')}</h3>
                       <p className="text-muted-foreground flex-grow">
-                        Trang bị những kỹ năng cần thiết về công nghệ và AI để tự tin thay đổi cuộc đời, 
-                        mở ra cơ hội nghề nghiệp tại NhiLe Holding và đóng góp cho xã hội.
+                        {t('landingScreen.vocationalText')}
                       </p>
                       <Button variant="secondary" className="mt-6 self-start">
-                        Tìm hiểu thêm
+                        {t('common.learnMore')}
                       </Button>
                     </div>
                   </div>
@@ -420,15 +419,15 @@ const HRAssessmentApp = () => {
                 transition={{ duration: 0.5 }}
                 className="text-center apple-card p-8 md:p-12"
               >
-                              <h2 className="text-3xl font-bold mb-3 tracking-tight">Tạo tài khoản hoặc Đăng nhập</h2>
-                <p className="text-muted-foreground mb-8">Chọn phương thức thuận tiện nhất để tiếp tục.</p>
+                <h2 className="text-3xl font-bold mb-3 tracking-tight">{t('loginScreen.title')}</h2>
+                <p className="text-muted-foreground mb-8">{t('loginScreen.subtitle')}</p>
                 <div className="space-y-4 max-w-sm mx-auto">
                   <Button 
                     onClick={() => goToScreen('role-selection')} 
                     variant="outline" 
                     className="w-full"
                   >
-                    Tiếp tục với Google
+                    {t('loginScreen.googleCta')}
                   </Button>
                   <Button 
                     onClick={() => goToScreen('role-selection')} 
@@ -436,7 +435,7 @@ const HRAssessmentApp = () => {
                     className="w-full"
                   >
                     <Mail className="w-4 h-4 mr-2" />
-                    Tiếp tục với Email OTP
+                    {t('loginScreen.emailCta')}
                   </Button>
                 </div>
               </motion.div>
@@ -451,9 +450,9 @@ const HRAssessmentApp = () => {
                 transition={{ duration: 0.5 }}
                 className="apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 md:p-12"
               >
-                              <h2 className="text-3xl font-bold mb-3 text-center tracking-tight">Chọn vị trí bạn quan tâm</h2>
+                              <h2 className="text-3xl font-bold mb-3 text-center tracking-tight">{t('roleSelectionScreen.title')}</h2>
                 <p className="text-muted-foreground mb-10 text-center">
-                  Chúng tôi sẽ gán bộ bài đánh giá phù hợp nhất với lựa chọn của bạn.
+                  {t('roleSelectionScreen.subtitle')}
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div 
@@ -461,9 +460,9 @@ const HRAssessmentApp = () => {
                     className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
                   >
                     <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />
-                    <h3 className="text-xl font-bold mb-2">Content Creator</h3>
+                    <h3 className="text-xl font-bold mb-2">{t('roles.Content Creator')}</h3>
                     <p className="text-muted-foreground text-sm">
-                      Đo lường khả năng sáng tạo, tư duy ngôn ngữ và sự nhạy bén với xu hướng.
+                      {t('roleSelectionScreen.role1Text')}
                     </p>
                   </div>
                   
@@ -472,9 +471,9 @@ const HRAssessmentApp = () => {
                     className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
                   >
                     <HeartHandshake className="w-10 h-10 text-primary mb-4 mx-auto" />
-                    <h3 className="text-xl font-bold mb-2">Customer Support</h3>
+                    <h3 className="text-xl font-bold mb-2">{t('roles.Customer Support')}</h3>
                     <p className="text-muted-foreground text-sm">
-                      Đánh giá sự đồng cảm, khả năng giải quyết vấn đề và sự kiên nhẫn.
+                      {t('roleSelectionScreen.role2Text')}
                     </p>
                   </div>
                   
@@ -483,9 +482,9 @@ const HRAssessmentApp = () => {
                     className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
                   >
                     <ClipboardList className="w-10 h-10 text-primary mb-4 mx-auto" />
-                    <h3 className="text-xl font-bold mb-2">Operations / Admin</h3>
+                    <h3 className="text-xl font-bold mb-2">{t('roles.Operations')}</h3>
                     <p className="text-muted-foreground text-sm">
-                      Tập trung vào tư duy logic, sắp xếp ưu tiên và xây dựng quy trình.
+                      {t('roleSelectionScreen.role3Text')}
                     </p>
                   </div>
                 </div>
@@ -502,7 +501,7 @@ const HRAssessmentApp = () => {
               >
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold tracking-tight">
-                    Bài đánh giá: {currentRole}
+                    {t('assessmentScreen.assessmentTitle')}: {currentRole}
                   </h2>
                   <div className="flex items-center gap-2 bg-card border border-border px-4 py-2 rounded-xl shadow-sm">
                     <Clock className="text-red-500 w-5 h-5" />
@@ -516,9 +515,9 @@ const HRAssessmentApp = () => {
                   {/* Progress Bar */}
                   <div className="mb-8">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-muted-foreground">Tiến trình</span>
+                      <span className="text-sm font-medium text-muted-foreground">{t('assessmentScreen.progressLabel')}</span>
                       <span className="text-sm font-medium text-primary">
-                        Câu {currentQuestionIndex + 1} / {assessmentData[currentRole].questions.length}
+                        {t('assessmentScreen.questionLabel')} {currentQuestionIndex + 1} / {assessmentData[currentRole].questions.length}
                       </span>
                     </div>
                     <div className="w-full bg-muted rounded-full h-2">
@@ -545,7 +544,7 @@ const HRAssessmentApp = () => {
                       className="flex items-center gap-2"
                     >
                       <ArrowLeft className="w-5 h-5" />
-                      <span>Câu trước</span>
+                      <span>{t('assessmentScreen.previousBtn')}</span>
                     </Button>
                     
                     {currentQuestionIndex === assessmentData[currentRole].questions.length - 1 ? (
@@ -553,7 +552,7 @@ const HRAssessmentApp = () => {
                         onClick={finishAssessment}
                         className="apple-button flex items-center gap-2 bg-green-500 hover:bg-green-600"
                       >
-                        <span>Hoàn thành</span>
+                        <span>{t('assessmentScreen.finishBtn')}</span>
                         <CheckCircle className="w-5 h-5" />
                       </Button>
                     ) : (
@@ -561,7 +560,7 @@ const HRAssessmentApp = () => {
                         onClick={() => navigateQuestion(1)}
                         className="apple-button flex items-center gap-2"
                       >
-                        <span>Câu tiếp theo</span>
+                        <span>{t('assessmentScreen.nextBtn')}</span>
                         <ArrowRight className="w-5 h-5" />
                       </Button>
                     )}
@@ -583,10 +582,9 @@ const HRAssessmentApp = () => {
             {currentScreen === 'tryout' && (
               <div className="fade-in apple-card p-8 transform transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 md:p-12">
                 <div className="text-center mb-10">
-                                  <h2 className="text-3xl font-bold mb-3 tracking-tight">Chào mừng đến Trung tâm Thử việc</h2>
+                  <h2 className="text-3xl font-bold mb-3 tracking-tight">{t('tryoutScreen.title')}</h2>
                   <p className="text-muted-foreground">
-                    Hoàn thành các nhiệm vụ sau để thể hiện kỹ năng của bạn. 
-                    Hạn chót: <span className="font-semibold text-red-600">7 ngày tới</span>.
+                    {t('tryoutScreen.subtitle')} <span className="font-semibold text-red-600">{t('tryoutScreen.deadline')}</span>.
                   </p>
                 </div>
                 
@@ -596,16 +594,16 @@ const HRAssessmentApp = () => {
                       <Lightbulb className="w-6 h-6" />
                     </div>
                     <div className="flex-grow">
-                      <h3 className="font-bold text-lg">Nhiệm vụ 1: Xử lý 5 ticket mô phỏng</h3>
+                      <h3 className="font-bold text-lg">{t('tryoutScreen.task1Title')}</h3>
                       <p className="text-muted-foreground text-sm mt-1">
-                        Bạn sẽ vào một hệ thống chat giả lập và xử lý 5 ticket mẫu với độ khó tăng dần.
+                        {t('tryoutScreen.task1Text')}
                       </p>
                       <span className="text-xs font-medium bg-muted text-muted-foreground px-2 py-1 rounded-full mt-3 inline-block">
-                        Ước tính: 2 giờ
+                        {t('tryoutScreen.task1Estimate')}
                       </span>
                     </div>
                     <Button variant="secondary" className="w-full md:w-auto">
-                      Bắt đầu
+                      {t('tryoutScreen.startBtn')}
                     </Button>
                   </div>
                   
@@ -614,17 +612,16 @@ const HRAssessmentApp = () => {
                       <FileText className="w-6 h-6" />
                     </div>
                     <div className="flex-grow">
-                      <h3 className="font-bold text-lg">Nhiệm vụ 2: Góp ý cải thiện quy trình</h3>
+                      <h3 className="font-bold text-lg">{t('tryoutScreen.task2Title')}</h3>
                       <p className="text-muted-foreground text-sm mt-1">
-                        Dựa trên các ticket đã xử lý, hãy viết một đề xuất ngắn (1 trang) để cải thiện 
-                        một điểm bất cập trong quy trình hỗ trợ khách hàng.
+                        {t('tryoutScreen.task2Text')}
                       </p>
                       <span className="text-xs font-medium bg-muted text-muted-foreground px-2 py-1 rounded-full mt-3 inline-block">
-                        Ước tính: 1.5 giờ
+                        {t('tryoutScreen.task2Estimate')}
                       </span>
                     </div>
                     <Button variant="secondary" className="w-full md:w-auto">
-                      Bắt đầu
+                      {t('tryoutScreen.startBtn')}
                     </Button>
                   </div>
                 </div>

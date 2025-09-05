@@ -1,0 +1,106 @@
+{
+  "common": {
+    "teamName": "NhiLe Team",
+    "coreValue1": "Tâm",
+    "coreValue2": "Tầm",
+    "coreValue3": "Đức",
+    "learnMore": "Tìm hiểu thêm",
+    "languageInfo": "VN/EN",
+    "timeInfo": "Thời gian: 20-35 phút",
+    "privacyInfo": "Dữ liệu của bạn được bảo mật"
+  },
+  "landingScreen": {
+    "welcomeTitle": "Chào mừng bạn đến với Hành trình Khám phá Tài năng",
+    "welcomeSubtitle": "Đây không chỉ là một bài kiểm tra. Đây là hành trình để chúng ta cùng nhau khám phá vị trí phù hợp nhất với tài năng và giá trị của bạn trong hệ sinh thái của NhiLe Team.",
+    "coreValuesTitle": "GIÁ TRỊ CỐT LÕI CỦA CHÚNG TÔI",
+    "ctaStart": "Khám phá hành trình của bạn →",
+    "howItWorksTitle": "Hành trình của bạn",
+    "howItWorksSubtitle": "Một quy trình minh bạch được thiết kế để giúp bạn tỏa sáng.",
+    "howItWorks1Title": "1. Hoàn thành Đánh giá",
+    "howItWorks1Text": "Dành 20-35 phút trả lời các câu hỏi tình huống giúp chúng tôi hiểu rõ hơn về bạn.",
+    "howItWorks2Title": "2. Nhận Phản hồi Tức thì",
+    "howItWorks2Text": "Xem ngay các điểm mạnh nổi bật và lĩnh vực bạn có thể phát triển thêm.",
+    "howItWorks3Title": "3. Tìm Đúng Vị trí",
+    "howItWorks3Text": "Chúng tôi sẽ đề xuất con đường phù hợp nhất, từ học nghề, tình nguyện đến vị trí chính thức.",
+    "whyItMattersTitle": "Xây dựng một đội ngũ cùng chung chí hướng",
+    "whyItMattersSubtitle": "Chúng tôi tin rằng sự phù hợp về giá trị và thái độ quan trọng hơn kinh nghiệm. Dữ liệu cho thấy cách tiếp cận này tạo ra những đội ngũ gắn kết và hiệu quả hơn.",
+    "stat1Title": "90%",
+    "stat1Subtitle": "Phù hợp hơn",
+    "stat1Text": "Ứng viên có tỷ lệ phù hợp với văn hóa và giá trị cốt lõi của team cao hơn.",
+    "stat2Title": "50%",
+    "stat2Subtitle": "Nhanh hơn",
+    "stat2Text": "Tiết kiệm thời gian phỏng vấn, tập trung vào những người thực sự phù hợp.",
+    "stat3Title": "Top 5%",
+    "stat3Subtitle": "Hiệu suất cao",
+    "stat3Text": "Những người phù hợp về giá trị thường có hiệu suất làm việc vượt trội.",
+    "exploreTitle": "Khám phá các cơ hội trong NhiLe Team",
+    "exploreSubtitle": "Dù bạn ở giai đoạn nào, luôn có một nơi để bạn thuộc về và cống hiến.",
+    "volunteerTitle": "Nhóm Tình Nguyện",
+    "volunteerText": "Dành thời gian của bạn để cống hiến cho các hoạt động ý nghĩa, hỗ trợ trẻ em có hoàn cảnh khó khăn và lan tỏa giá trị tích cực đến cộng đồng.",
+    "vocationalTitle": "Nhóm Học Nghề",
+    "vocationalText": "Trang bị những kỹ năng cần thiết về công nghệ và AI để tự tin thay đổi cuộc đời, mở ra cơ hội nghề nghiệp tại NhiLe Holding và đóng góp cho xã hội.",
+    "stat4Subtitle": "Gắn kết hơn",
+    "stat4Text": "Xây dựng một môi trường làm việc tích cực, giảm thiểu xung đột không đáng có."
+  },
+  "loginScreen": {
+    "title": "Tạo tài khoản hoặc Đăng nhập",
+    "subtitle": "Chọn phương thức thuận tiện nhất để tiếp tục.",
+    "googleCta": "Tiếp tục với Google",
+    "emailCta": "Tiếp tục với Email OTP"
+  },
+  "roleSelectionScreen": {
+    "title": "Chọn vị trí bạn quan tâm",
+    "subtitle": "Chúng tôi sẽ gán bộ bài đánh giá phù hợp nhất với lựa chọn của bạn.",
+    "role1Title": "Content Creator",
+    "role1Text": "Đo lường khả năng sáng tạo, tư duy ngôn ngữ và sự nhạy bén với xu hướng.",
+    "role2Title": "Customer Support",
+    "role2Text": "Đánh giá sự đồng cảm, khả năng giải quyết vấn đề và sự kiên nhẫn.",
+    "role3Title": "Operations / Admin",
+    "role3Text": "Tập trung vào tư duy logic, sắp xếp ưu tiên và xây dựng quy trình."
+  },
+  "assessmentScreen": {
+    "assessmentTitle": "Bài đánh giá",
+    "progressLabel": "Tiến trình",
+    "questionLabel": "Câu",
+    "previousBtn": "Câu trước",
+    "nextBtn": "Câu tiếp theo",
+    "finishBtn": "Hoàn thành",
+    "noAssessment": "Vị trí này hiện chưa có bài đánh giá."
+  },
+  "resultScreen": {
+    "title": "Cảm ơn bạn đã hoàn thành!",
+    "subtitle": "Đây là bản tóm tắt nhanh về các điểm mạnh của bạn.",
+    "strengthsTitle": "Top 3 điểm mạnh nổi bật:",
+    "nextStepsTitle": "Bước tiếp theo",
+    "successText": "Kết quả của bạn rất ấn tượng! Bước tiếp theo, chúng tôi mời bạn đặt lịch phỏng vấn trực tiếp với đội nhóm.",
+    "successCta": "Đặt lịch phỏng vấn",
+    "tryoutText": "Bạn đã thể hiện nhiều tiềm năng. Để hiểu rõ hơn về kỹ năng thực tế của bạn, chúng tôi mời bạn tham gia vào Kênh Thử việc/Tình nguyện.",
+    "tryoutCta": "Tiếp tục đến phần Thử việc",
+    "thankyou": "Cảm ơn bạn đã hoàn thành!"
+  },
+  "tryoutScreen": {
+    "title": "Chào mừng đến Trung tâm Thử việc",
+    "subtitle": "Hoàn thành các nhiệm vụ sau để thể hiện kỹ năng của bạn. Hạn chót:",
+    "deadline": "7 ngày tới",
+    "task1Title": "Nhiệm vụ 1: Xử lý 5 ticket mô phỏng",
+    "task1Text": "Bạn sẽ vào một hệ thống chat giả lập và xử lý 5 ticket mẫu với độ khó tăng dần.",
+    "task1Estimate": "Ước tính: 2 giờ",
+    "task2Title": "Nhiệm vụ 2: Góp ý cải thiện quy trình",
+    "task2Text": "Dựa trên các ticket đã xử lý, hãy viết một đề xuất ngắn (1 trang) để cải thiện một điểm bất cập trong quy trình hỗ trợ khách hàng.",
+    "task2Estimate": "Ước tính: 1.5 giờ",
+    "startBtn": "Bắt đầu"
+  },
+  "roles": {
+    "Content Creator": "Content Creator",
+    "Customer Support": "Customer Support",
+    "Operations": "Operations / Admin"
+  },
+  "strengths": {
+    "strength1": "Tư duy sáng tạo",
+    "strength2": "Giải quyết vấn đề nhanh nhạy",
+    "strength3": "Giao tiếp hiệu quả",
+    "strength4": "Tinh thần hợp tác",
+    "strength5": "Chú trọng chi tiết",
+    "strength6": "Đồng cảm với khách hàng"
+  }
+}
