@@ -15,6 +15,7 @@ import TryoutScreen from './components/TryoutScreen';
 import NotFound from './pages/NotFound';
 import { Role } from './types/assessment';
 import React, { useState } from 'react';
+import LoadingSkeleton from './components/LoadingSkeleton';
 
 const queryClient = new QueryClient();
 
@@ -23,20 +24,73 @@ interface AssessmentResult {
   strengths: string[];
 }
 
+interface LoadingState {
+  isLoading: boolean;
+  targetScreen: 'login' | 'assessment' | 'result' | null;
+  loadingText?: string;
+}
+
 const App = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [assessmentResult, setAssessmentResult] = useState<AssessmentResult | null>(null);
+  const [loadingState, setLoadingState] = useState<LoadingState>({
+    isLoading: false,
+    targetScreen: null
+  });
+
+  const handleLoginClick = () => {
+    setLoadingState({
+      isLoading: true,
+      targetScreen: 'login',
+      loadingText: 'Đang chuẩn bị màn hình đăng nhập...'
+    });
+
+    // Simulate loading time
+    setTimeout(() => {
+      setLoadingState({
+        isLoading: false,
+        targetScreen: null
+      });
+      navigate("/login");
+    }, 800);
+  };
 
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role);
-    navigate("/assessment");
+    setLoadingState({
+      isLoading: true,
+      targetScreen: 'assessment',
+      loadingText: `Đang chuẩn bị câu hỏi ${role.title}`
+    });
+
+    // Simulate loading time for assessment
+    setTimeout(() => {
+      setLoadingState({
+        isLoading: false,
+        targetScreen: null
+      });
+      navigate("/assessment");
+    }, 1200);
   };
 
   const handleFinishAssessment = (result: AssessmentResult) => {
     setAssessmentResult(result);
-    navigate("/result");
+    setLoadingState({
+      isLoading: true,
+      targetScreen: 'result',
+      loadingText: 'Đang phân tích kết quả của bạn...'
+    });
+
+    // Simulate result processing time
+    setTimeout(() => {
+      setLoadingState({
+        isLoading: false,
+        targetScreen: null
+      });
+      navigate("/result");
+    }, 1500);
   };
 
   const handleTryoutClick = () => {
@@ -47,6 +101,24 @@ const App = () => {
     console.log("Starting a tryout task...");
   };
 
+  // Show loading skeleton if loading
+  if (loadingState.isLoading) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <HRAssessmentApp>
+            <LoadingSkeleton 
+              type={loadingState.targetScreen!} 
+              loadingText={loadingState.loadingText}
+            />
+          </HRAssessmentApp>
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -55,7 +127,7 @@ const App = () => {
         <HRAssessmentApp>
           <AnimatePresence mode="wait" initial={false}>
             <Routes location={location} key={location.pathname}>
-              <Route path="/" element={<LandingScreen onLoginClick={() => navigate("/login")} />} />
+              <Route path="/" element={<LandingScreen onLoginClick={handleLoginClick} />} />
               <Route path="/login" element={<LoginScreen onRoleSelectionClick={() => navigate("/role-selection")} />} />
               <Route path="/role-selection" element={<RoleSelectionScreen onRoleSelect={handleRoleSelect} />} />
               <Route path="/assessment" element={<AssessmentScreen role={selectedRole as Role} onFinish={handleFinishAssessment} />} />
