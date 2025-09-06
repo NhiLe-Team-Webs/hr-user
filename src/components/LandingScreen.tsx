@@ -71,9 +71,16 @@ const LandingScreen: React.FC<LandingScreenProps> = ({ onLoginClick }) => {
 
         <Button
           onClick={onLoginClick}
-          className="apple-button"
+          className="apple-button text-lg px-8 py-7 group"
         >
-          {t('landingScreen.ctaStart')}
+          <span className="flex items-center">
+            {t('landingScreen.ctaStart').replace('→', '').trim()}
+            <svg xmlns="http://www.w3.org/2000/svg" height="32px" viewBox="0 -960 960 960" width="32px" fill="rgba(255, 255, 255, 1)"
+              className="ml-2 h-5 w-5 transition-transform duration-300 group-hover:translate-x-2"
+            >
+              <path d="M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z" />
+            </svg>
+          </span>
         </Button>
       </div>
 
