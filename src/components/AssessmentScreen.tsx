@@ -90,7 +90,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   };
 
   const navigateQuestion = (direction: number) => {
-    const questions = assessmentData[role].questions;
+    const questions = assessmentData[role.name].questions;
     const newIndex = currentQuestionIndex + direction;
 
     if (newIndex >= 0 && newIndex < questions.length) {
@@ -100,7 +100,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
   const calculateScore = () => {
     if (!role) return 0;
-    const questions = assessmentData[role].questions;
+    const questions = assessmentData[role.title].questions;
     let correctAnswers = 0;
     
     for (let i = 0; i < questions.length; i++) {
@@ -124,7 +124,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     return strengths.sort(() => 0.5 - Math.random()).slice(0, 3);
   };
   const renderQuestion = () => {
-      const questions = assessmentData[role].questions;
+      const questions = assessmentData[role.name].questions;
       if (questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
 
       const question = questions[currentQuestionIndex];
@@ -191,7 +191,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           >
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold text-gray-800">
-                {t('assessmentScreen.assessmentTitle')}: {role}
+                {t('assessmentScreen.assessmentTitle')}: {role.name}
               </h2>
             </div>
             
@@ -201,14 +201,14 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                 className="bg-gradient-to-r from-green-400 to-blue-500 h-3 rounded-full"
                 initial={{ width: 0 }}
                 animate={{
-                  width: `${((currentQuestionIndex + 1) / assessmentData[role].questions.length) * 100}%`
+                  width: `${((currentQuestionIndex + 1) / assessmentData[role.name].questions.length) * 100}%`
                 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
               />
             </div>
             <div className="flex justify-between items-center mt-2 text-sm text-gray-600">
-              <span>Câu {currentQuestionIndex + 1}/{assessmentData[role].questions.length}</span>
-              <span>{Math.round(((currentQuestionIndex + 1) / assessmentData[role].questions.length) * 100)}%</span>
+              <span>Câu {currentQuestionIndex + 1}/{assessmentData[role.name].questions.length}</span>
+              <span>{Math.round(((currentQuestionIndex + 1) / assessmentData[role.name].questions.length) * 100)}%</span>
             </div>
           </motion.div>
 
@@ -238,7 +238,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
             <span>{t('assessmentScreen.previousBtn')}</span>
           </Button>
           
-          {currentQuestionIndex === assessmentData[role].questions.length - 1 ? (
+          {currentQuestionIndex === assessmentData[role.name].questions.length - 1 ? (
             <Button
               onClick={finishAssessment}
               disabled={!hasAnsweredCurrent}

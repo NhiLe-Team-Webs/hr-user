@@ -1,10 +1,12 @@
+// src/components/RoleSelectionScreen.tsx
 import React from 'react';
 import { motion } from 'framer-motion';
 import { PencilRuler, HeartHandshake, ClipboardList } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
+import { Role } from '../types/assessment'; // Import the Role type
 
 interface RoleSelectionScreenProps {
-  onRoleSelect: (role: string) => void;
+  onRoleSelect: (role: Role) => void;
 }
 
 const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect }) => {
@@ -25,7 +27,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
       </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div 
-          onClick={() => onRoleSelect('Content Creator')} 
+          onClick={() => onRoleSelect({ name: 'Content Creator', title: 'Content Creator' })} 
           className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
         >
           <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />
@@ -35,7 +37,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
           </p>
         </div>
         <div 
-          onClick={() => onRoleSelect('Customer Support')} 
+          onClick={() => onRoleSelect({ name: 'Customer Support', title: 'Customer Support' })} 
           className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
         >
           <HeartHandshake className="w-10 h-10 text-primary mb-4 mx-auto" />
@@ -45,7 +47,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
           </p>
         </div>
         <div 
-          onClick={() => onRoleSelect('Operations')} 
+          onClick={() => onRoleSelect({ name: 'Operations', title: 'Operations / Admin' })} 
           className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
         >
           <ClipboardList className="w-10 h-10 text-primary mb-4 mx-auto" />
