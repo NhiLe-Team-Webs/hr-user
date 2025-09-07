@@ -1,7 +1,7 @@
 // src/components/AssessmentScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, ArrowRight, CheckCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { assessmentData } from '../data/assessmentData';
 import { Role, UserAnswers } from '../types/assessment';
@@ -16,7 +16,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
-
 
 interface AssessmentResult {
   score: number;
@@ -35,6 +34,31 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   const hasAnsweredCurrent = typeof userAnswers[currentQuestionIndex] !== 'undefined';
   const [tabViolations, setTabViolations] = useState(0);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(10); // 30 minutes in seconds
+
+  // Timer logic
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 0) {
+          clearInterval(timer);
+          finishAssessment();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [role]);
+
+  // Format time as MM:SS
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   useEffect(() => {
     if (!role) return;
 
@@ -123,6 +147,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     ];
     return strengths.sort(() => 0.5 - Math.random()).slice(0, 3);
   };
+
   const renderQuestion = () => {
       const questions = assessmentData[role.name].questions;
       if (questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
@@ -193,6 +218,21 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <h2 className="text-2xl font-bold text-gray-800">
                 {t('assessmentScreen.assessmentTitle')}: {role.name}
               </h2>
+              {/* Timer Display */}
+              <motion.div
+                className="flex items-center gap-2 text-lg font-semibold text-gray-800"
+                animate={{
+                  scale: timeLeft <= 300 ? [1, 1.1, 1] : 1, // Pulse animation when 5 minutes or less remain
+                  color: timeLeft <= 300 ? '#EA3323' : '#374151', // Red when critical, gray otherwise
+                }}
+                transition={{
+                  repeat: timeLeft <= 300 ? Infinity : 0,
+                  duration: 0.8,
+                }}
+              >
+                <Clock className="w-5 h-5" />
+                <span>{formatTime(timeLeft)}</span>
+              </motion.div>
             </div>
             
             {/* Progress Bar */}
@@ -268,26 +308,24 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
         </div>
       </motion.div>
       <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          {/* Thêm icon SVG và căn chỉnh */}
-          <div className="flex items-center gap-3 mb-2"> {/* Thêm flex container để căn chỉnh icon và tiêu đề */}
-            <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#EA3323">
-              <path d="m40-120 440-760 440 760H40Zm115.33-66.67h649.34L480-746.67l-324.67 560ZM482.78-238q14.22 0 23.72-9.62 9.5-9.61 9.5-23.83 0-14.22-9.62-23.72-9.5-14.22 0-23.72 9.62-9.62 9.5 23.83 0 14.22 9.62 23.72 9.62 9.5 23.83 9.5Zm-33.45-114H516v-216h-66.67v216ZM480-466.67Z"/>
-            </svg>
-            <AlertDialogTitle>Cảnh báo Gian lận!</AlertDialogTitle>
-          </div>
-          <AlertDialogDescription>
-            Bạn đã chuyển tab trong khi làm bài. Bài kiểm tra của bạn sẽ bị hủy nếu bạn vi phạm thêm {3 - tabViolations} lần nữa.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogAction onClick={() => setIsAlertOpen(false)}>Quay lại bài làm</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#EA3323">
+                <path d="m40-120 440-760 440 760H40Zm115.33-66.67h649.34L480-746.67l-324.67 560ZM482.78-238q14.22 0 23.72-9.62 9.5-9.61 9.5-23.83 0-14.22-9.62-23.72-9.5-14.22 0-23.72 9.62-9.62 9.5 23.83 0 14.22 9.62 23.72 9.62 9.5 23.83 9.5Zm-33.45-114H516v-216h-66.67v216ZM480-466.67Z"/>
+              </svg>
+              <AlertDialogTitle>Cảnh báo Gian lận!</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription>
+              Bạn đã chuyển tab trong khi làm bài. Bài kiểm tra của bạn sẽ bị hủy nếu bạn vi phạm thêm {3 - tabViolations} lần nữa.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setIsAlertOpen(false)}>Quay lại bài làm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
-    
   );
 };
 
