@@ -1,17 +1,73 @@
 // src/components/RoleSelectionScreen.tsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { PencilRuler, HeartHandshake, ClipboardList } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
-import { Role } from '../types/assessment'; // Import the Role type
+import { getRoles } from '../lib/api'; // Import API getRoles
+import { useToast } from './ui/use-toast';
 
 interface RoleSelectionScreenProps {
-  onRoleSelect: (role: Role) => void;
+  onRoleSelect: (role: { name: string; title: string }) => void;
 }
 
 const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect }) => {
   const { t } = useLanguage();
+  const { toast } = useToast();
+  const [roles, setRoles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const rolesData = await getRoles();
+        setRoles(rolesData);
+      } catch (err) {
+        toast({
+          title: 'Lỗi',
+          description: 'Không thể tải danh sách vai trò.',
+          variant: 'destructive',
+        });
+        setError('Không thể tải danh sách vai trò.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRoles();
+  }, [toast]);
+
+  if (loading) {
+    return (
+      <motion.div
+        key="loading-roles"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="text-center p-8"
+      >
+        Đang tải danh sách vai trò...
+      </motion.div>
+    );
+  }
+
+  if (error) {
+    return (
+      <motion.div
+        key="error-roles"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="text-center p-8 text-red-500"
+      >
+        Lỗi: {error}
+      </motion.div>
+    );
+  }
+
+  const roleIcons = {
+    'Content Creator': <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />,
+    'Customer Support': <HeartHandshake className="w-10 h-10 text-primary mb-4 mx-auto" />,
+    'Operations': <ClipboardList className="w-10 h-10 text-primary mb-4 mx-auto" />,
+  };
+  
   return (
     <motion.div
       key="role-selection"
@@ -26,36 +82,19 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
         {t('roleSelectionScreen.subtitle')}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div 
-          onClick={() => onRoleSelect({ name: 'Content Creator', title: 'Content Creator' })} 
-          className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
-        >
-          <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />
-          <h3 className="text-xl font-bold mb-2">{t('roles.Content Creator')}</h3>
-          <p className="text-muted-foreground text-sm">
-            {t('roleSelectionScreen.role1Text')}
-          </p>
-        </div>
-        <div 
-          onClick={() => onRoleSelect({ name: 'Customer Support', title: 'Customer Support' })} 
-          className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
-        >
-          <HeartHandshake className="w-10 h-10 text-primary mb-4 mx-auto" />
-          <h3 className="text-xl font-bold mb-2">{t('roles.Customer Support')}</h3>
-          <p className="text-muted-foreground text-sm">
-            {t('roleSelectionScreen.role2Text')}
-          </p>
-        </div>
-        <div 
-          onClick={() => onRoleSelect({ name: 'Operations', title: 'Operations / Admin' })} 
-          className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
-        >
-          <ClipboardList className="w-10 h-10 text-primary mb-4 mx-auto" />
-          <h3 className="text-xl font-bold mb-2">{t('roles.Operations')}</h3>
-          <p className="text-muted-foreground text-sm">
-            {t('roleSelectionScreen.role3Text')}
-          </p>
-        </div>
+        {roles.map(roleName => (
+          <div
+            key={roleName}
+            onClick={() => onRoleSelect({ name: roleName, title: roleName })}
+            className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
+          >
+            {roleIcons[roleName as keyof typeof roleIcons] || <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />}
+            <h3 className="text-xl font-bold mb-2">{roleName}</h3>
+            <p className="text-muted-foreground text-sm">
+              {/* Đây là nơi bạn có thể thêm mô tả động nếu cần */}
+            </p>
+          </div>
+        ))}
       </div>
     </motion.div>
   );

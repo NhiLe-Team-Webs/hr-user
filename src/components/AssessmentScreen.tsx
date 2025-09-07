@@ -3,13 +3,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
-import { assessmentData } from '../data/assessmentData';
-import { Role, UserAnswers } from '../types/assessment';
+import { Textarea } from './ui/textarea';
+import { getAssessment, getQuestionsByIds } from '../lib/api';
+import { Role, UserAnswers, Question } from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
 import {
   AlertDialog,
   AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -17,40 +17,83 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 
-interface AssessmentResult {
-  score: number;
-  strengths: string[];
-}
-
 interface AssessmentScreenProps {
   role: Role;
-  onFinish: (result: AssessmentResult) => void;
+  onFinish: () => void;
 }
 
 const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) => {
   const { t } = useLanguage();
+  const [assessment, setAssessment] = useState(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
   const hasAnsweredCurrent = typeof userAnswers[currentQuestionIndex] !== 'undefined';
   const [tabViolations, setTabViolations] = useState(0);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(10); // 30 minutes in seconds
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch assessment data from API
+  useEffect(() => {
+  const fetchData = async () => {
+    try {
+      const assessmentData = await getAssessment(role.name);
+      if (!assessmentData) {
+        throw new Error('No assessment data returned');
+      }
+      setAssessment(assessmentData);
+      setTimeLeft(assessmentData.duration);
+
+      if (assessmentData.questions?.length > 0) {
+        const formattedQuestions: Question[] = assessmentData.questions.map((q: any) => {
+          const formattedQuestion: Question = {
+            id: q.id,
+            text: q.text,
+            type: q.type,
+            format: q.format,
+            required: q.required,
+          };
+
+          if (q.format === 'multiple_choice' && q.options) {
+            formattedQuestion.options = q.options.map((opt: any) => ({
+              id: opt.id,
+              text: opt.option_text,
+            }));
+            formattedQuestion.correctAnswer = q.options.find((opt: any) => opt.is_correct)?.id;
+          }
+
+          return formattedQuestion;
+        });
+        console.log('Formatted questions:', formattedQuestions); // Debug log
+        setQuestions(formattedQuestions);
+      } else {
+        setQuestions([]);
+        setError(t('assessmentScreen.noQuestions'));
+      }
+    } catch (err) {
+      setError(t('assessmentScreen.errorFetching'));
+      console.error('Error fetching assessment data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+  fetchData();
+}, [role, t]);
 
   // Timer logic
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 0) {
-          clearInterval(timer);
-          finishAssessment();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [role]);
+    if (timeLeft <= 0 && timeLeft !== 0) {
+      onFinish();
+      return;
+    }
+    if (timeLeft > 0) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [timeLeft, onFinish]);
 
   // Format time as MM:SS
   const formatTime = (seconds: number) => {
@@ -60,8 +103,6 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   };
 
   useEffect(() => {
-    if (!role) return;
-
     const handleVisibilityChange = () => {
       if (document.hidden) {
         setTabViolations(prev => prev + 1);
@@ -78,124 +119,93 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
   useEffect(() => {
     if (tabViolations >= 3) {
-      finishAssessment();
+      onFinish();
     }
-  }, [tabViolations]);
+  }, [tabViolations, onFinish]);
 
   const finishAssessment = () => {
-    const result = {
-      score: calculateScore(),
-      strengths: getRandomStrengths()
-    };
-    onFinish(result);
+    onFinish();
   };
-
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';  
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
 
   const handleOptionSelect = (optionIndex: number) => {
     saveAnswer(currentQuestionIndex, optionIndex);
   };
 
-  const saveAnswer = (questionIndex: number, optionIndex: number) => {
+  const saveAnswer = (questionIndex: number, answer: string | number) => {
     setUserAnswers(prev => ({
       ...prev,
-      [questionIndex]: optionIndex
+      [questionIndex]: answer
     }));
   };
 
   const navigateQuestion = (direction: number) => {
-    const questions = assessmentData[role.name].questions;
     const newIndex = currentQuestionIndex + direction;
-
     if (newIndex >= 0 && newIndex < questions.length) {
       setCurrentQuestionIndex(newIndex);
     }
   };
-
-  const calculateScore = () => {
-    if (!role) return 0;
-    const questions = assessmentData[role.title].questions;
-    let correctAnswers = 0;
-    
-    for (let i = 0; i < questions.length; i++) {
-      if (userAnswers[i] === questions[i].correct) {
-        correctAnswers++;
-      }
-    }
-    
-    return (correctAnswers / questions.length) * 100;
-  };
   
-  const getRandomStrengths = () => {
-    const strengths = [
-      t('strengths.strength1'),
-      t('strengths.strength2'),
-      t('strengths.strength3'),
-      t('strengths.strength4'),
-      t('strengths.strength5'),
-      t('strengths.strength6')
-    ];
-    return strengths.sort(() => 0.5 - Math.random()).slice(0, 3);
-  };
-
   const renderQuestion = () => {
-      const questions = assessmentData[role.name].questions;
-      if (questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
+    if (!questions || questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
+    const question = questions[currentQuestionIndex];
 
-      const question = questions[currentQuestionIndex];
-
-      return (
-          <div className="space-y-8">
-              {/* Question */}
+    return (
+      <div className="space-y-8">
+        <motion.div
+          key={currentQuestionIndex}
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+          className="text-center"
+        >
+          <h3 className="text-2xl font-bold mb-8 text-gray-800 leading-relaxed">
+            {question.text}
+          </h3>
+        </motion.div>
+        
+        <div className="space-y-4">
+          {question.format === 'multiple_choice' ? (
+            question.options?.map((option, index) => (
               <motion.div
-                  key={currentQuestionIndex}
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, ease: "easeOut" }}
-                  className="text-center"
+                key={option.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
               >
-                  <h3 className="text-2xl font-bold mb-8 text-gray-800 leading-relaxed">
-                      {question.text}
-                  </h3>
+                <div
+                  className={`relative flex items-center p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 font-medium text-lg min-h-[70px]
+                  ${userAnswers[currentQuestionIndex] === index
+                      ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
+                      : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
+                  }`}
+                  onClick={() => handleOptionSelect(index)}
+                >
+                  <span className="flex-1 text-left text-sm">{option.text}</span>
+                </div>
               </motion.div>
-
-              {/* Options */}
-              <div className="space-y-4">
-                  {question.options.map((option, index) => (
-                      <motion.div
-                          key={index}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.5, delay: index * 0.1 }}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                      >
-                          <div
-                              className={`relative flex items-center p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 font-medium text-lg min-h-[70px]
-                              ${userAnswers[currentQuestionIndex] === index
-                                  ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
-                                  : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
-                              }`}
-                              onClick={() => handleOptionSelect(index)}
-                          >
-                              <span className="flex-1 text-left text-sm">{option}</span>
-                          </div>
-                      </motion.div>
-                  ))}
-              </div>
-          </div>
-      );
+            ))
+          ) : (
+            <Textarea
+              placeholder={t('assessmentScreen.typeYourAnswer')}
+              value={userAnswers[currentQuestionIndex] || ''}
+              onChange={(e) => saveAnswer(currentQuestionIndex, e.target.value)}
+              className="min-h-[150px] p-4 border-2 rounded-2xl focus:border-blue-500 focus:ring-blue-500 transition-all duration-300"
+            />
+          )}
+        </div>
+      </div>
+    );
   };
+
+  if (loading) {
+    return <div className="text-center p-8">Đang tải bài đánh giá...</div>;
+  }
+  
+  if (!assessment) {
+    return <div className="text-center p-8 text-red-500">Không có bài đánh giá nào cho vai trò này.</div>;
+  }
 
   return (
     <motion.div
@@ -204,7 +214,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
-      className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex flex-col"
+      className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-purple-50 flex flex-col"
     >
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto p-6">
@@ -222,8 +232,8 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <motion.div
                 className="flex items-center gap-2 text-lg font-semibold text-gray-800"
                 animate={{
-                  scale: timeLeft <= 300 ? [1, 1.1, 1] : 1, // Pulse animation when 5 minutes or less remain
-                  color: timeLeft <= 300 ? '#EA3323' : '#374151', // Red when critical, gray otherwise
+                  scale: timeLeft <= 300 ? [1, 1.1, 1] : 1,
+                  color: timeLeft <= 300 ? '#EA3323' : '#374151',
                 }}
                 transition={{
                   repeat: timeLeft <= 300 ? Infinity : 0,
@@ -241,14 +251,14 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                 className="bg-gradient-to-r from-green-400 to-blue-500 h-3 rounded-full"
                 initial={{ width: 0 }}
                 animate={{
-                  width: `${((currentQuestionIndex + 1) / assessmentData[role.name].questions.length) * 100}%`
+                  width: `${((currentQuestionIndex + 1) / questions.length) * 100}%`
                 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
               />
             </div>
             <div className="flex justify-between items-center mt-2 text-sm text-gray-600">
-              <span>Câu {currentQuestionIndex + 1}/{assessmentData[role.name].questions.length}</span>
-              <span>{Math.round(((currentQuestionIndex + 1) / assessmentData[role.name].questions.length) * 100)}%</span>
+              <span>Câu {currentQuestionIndex + 1}/{questions.length}</span>
+              <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
             </div>
           </motion.div>
 
@@ -278,7 +288,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
             <span>{t('assessmentScreen.previousBtn')}</span>
           </Button>
           
-          {currentQuestionIndex === assessmentData[role.name].questions.length - 1 ? (
+          {currentQuestionIndex === questions.length - 1 ? (
             <Button
               onClick={finishAssessment}
               disabled={!hasAnsweredCurrent}

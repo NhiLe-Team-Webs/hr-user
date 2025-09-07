@@ -1,31 +1,40 @@
 // src/types/assessment.ts
 
+// This is the correct, unified Question interface
 export interface Question {
-    type: 'work_sample' | 'problem_solving' | 'reliability' | 'culture_fit';
-    title: string;
-    text: string;
-    options: string[];
-    correct: number;
+  id: string;
+  text: string;
+  type: string;
+  format: 'text' | 'multiple_choice';
+  required: boolean;
+  points: number;
+  options?: Option[];
+  correctAnswer?: string;
 }
-
-export interface AssessmentData {
-    duration: number; // duration in seconds
-    questions: Question[];
-}
-
-export type Role = {
-    name: 'Content Creator';
-    title: 'Content Creator';
-} | {
-    name: 'Customer Support';
-    title: 'Customer Support';
-} | {
-    name: 'Operations';
-    title: 'Operations / Admin';
-};
 
 export interface UserAnswers {
-    [questionIndex: number]: number;
+  [questionIndex: number]: number;
+}
+// Option interface for multiple-choice questions
+export interface Option {
+  id: string;
+  text: string;
 }
 
-export type Screen = 'landing' | 'login' | 'role-selection' | 'assessment' | 'result' | 'tryout';
+// Assessment interface
+export interface Assessment {
+  id: string;
+  title: string;
+  description: string;
+  duration: number; // in seconds
+  questions: {
+    question_id: string;
+    order: number;
+  }[];
+}
+
+// Unified Role interface
+export interface Role {
+  name: string;
+  title: string;
+}

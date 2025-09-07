@@ -65,14 +65,20 @@
     "previousBtn": "Previous",
     "nextBtn": "Next",
     "finishBtn": "Finish",
-    "noAssessment": "This position currently has no assessment."
+    "noAssessment": "This position currently has no assessment.",
+    "typeYourAnswer": "Type your answer here...",
+    "selectYourAnswer": "Select your answer",
+    "errorLoading": "Error loading assessment. Please try again later."
   },
   "preAssessmentScreen": {
     "title": "Are you ready for the test?",
     "description": "This test is designed to assess your competence for the {role} position. Make sure you are ready and focused.",
     "minutes": "minutes",
     "questions": "questions",
-    "startAssessment": "Start Assessment"
+    "startAssessment": "Start Assessment",
+    "errorDescription": "Cannot load assessment. Please try again later.",
+    "loading": "Loading assessment...",
+    "retryButton": "Retry"
   },
   "resultScreen": {
     "title": "Thank you for completing!",
