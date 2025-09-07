@@ -67,6 +67,13 @@
     "finishBtn": "Finish",
     "noAssessment": "This position currently has no assessment."
   },
+  "preAssessmentScreen": {
+    "title": "Are you ready for the test?",
+    "description": "This test is designed to assess your competence for the {role} position. Make sure you are ready and focused.",
+    "minutes": "minutes",
+    "questions": "questions",
+    "startAssessment": "Start Assessment"
+  },
   "resultScreen": {
     "title": "Thank you for completing!",
     "subtitle": "Here is a quick summary of your strengths.",

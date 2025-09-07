@@ -67,6 +67,13 @@
     "finishBtn": "Hoàn thành",
     "noAssessment": "Vị trí này hiện chưa có bài đánh giá."
   },
+  "preAssessmentScreen": {
+    "title": "Bạn đã sẵn sàng cho bài kiểm tra?",
+    "description": "Bài kiểm tra này được thiết kế để đánh giá năng lực của bạn cho vị trí {role}. Hãy chắc chắn rằng bạn đã sẵn sàng và tập trung.",
+    "minutes": "phút",
+    "questions": "câu hỏi",
+    "startAssessment": "Bắt đầu bài kiểm tra"
+  },
   "resultScreen": {
     "title": "Cảm ơn bạn đã hoàn thành!",
     "subtitle": "Đây là bản tóm tắt nhanh về các điểm mạnh của bạn.",

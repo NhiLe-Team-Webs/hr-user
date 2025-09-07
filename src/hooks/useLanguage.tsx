@@ -19,13 +19,13 @@ const translations: Translations = {
 type LanguageContextType = {
   lang: Language;
   setLang: (lang: Language) => void;
-  t: (key: string) => string;
+  t: (key: string, variables?: { [key: string]: string }) => string;
 };
 
 export const LanguageContext = createContext<LanguageContextType>({
   lang: 'vi',
   setLang: () => {},
-  t: (key) => key,
+  t: (key: string, variables?: { [key: string]: string }) => key,
 });
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
@@ -46,19 +46,28 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem('lang', newLang);
   };
   
-  const t = (key: string): string => {
+  const t = (key: string, variables?: { [key: string]: string }): string => {
     const keys = key.split('.');
-    let result = translations[lang];
+    let result: any = translations[lang];
 
     for (const k of keys) {
       if (result && typeof result === 'object' && k in result) {
         result = result[k];
       } else {
-        return key; // Trả về key gốc nếu không tìm thấy
+        return key; // Return the original key if not found
       }
     }
 
-    return typeof result === 'string' ? result : key;
+    if (typeof result === 'string') {
+      if (variables) {
+        return Object.entries(variables).reduce((acc, [varKey, varValue]) => {
+          return acc.replace(`{${varKey}}`, varValue);
+        }, result);
+      }
+      return result;
+    }
+
+    return key;
   };
 
   return (

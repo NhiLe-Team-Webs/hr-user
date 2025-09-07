@@ -16,6 +16,7 @@ import NotFound from './pages/NotFound';
 import { Role } from './types/assessment';
 import React, { useState } from 'react';
 import LoadingSkeleton from './components/LoadingSkeleton';
+import PreAssessmentScreen from './components/PreAssessmentScreen';
 
 const queryClient = new QueryClient();
 
@@ -59,10 +60,14 @@ const App = () => {
 
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role);
+    navigate("/pre-assessment");
+  };
+
+  const handleStartAssessment = () => {
     setLoadingState({
       isLoading: true,
       targetScreen: 'assessment',
-      loadingText: `Đang chuẩn bị câu hỏi ${role.title}`
+      loadingText: `Đang chuẩn bị câu hỏi ${selectedRole?.title}`
     });
 
     // Simulate loading time for assessment
@@ -130,6 +135,7 @@ const App = () => {
               <Route path="/" element={<LandingScreen onLoginClick={handleLoginClick} />} />
               <Route path="/login" element={<LoginScreen onRoleSelectionClick={() => navigate("/role-selection")} />} />
               <Route path="/role-selection" element={<RoleSelectionScreen onRoleSelect={handleRoleSelect} />} />
+              <Route path="/pre-assessment" element={<PreAssessmentScreen onStartAssessment={handleStartAssessment} role={selectedRole as Role} />} />
               <Route path="/assessment" element={<AssessmentScreen role={selectedRole as Role} onFinish={handleFinishAssessment} />} />
               <Route path="/result" element={<ResultScreen result={assessmentResult as AssessmentResult} onTryoutClick={handleTryoutClick} />} />
               <Route path="/tryout" element={<TryoutScreen onStartTask={handleStartTask} />} />
