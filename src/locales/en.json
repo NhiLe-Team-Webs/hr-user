@@ -46,7 +46,19 @@
     "title": "Create Account or Log in",
     "subtitle": "Choose the most convenient method to continue.",
     "googleCta": "Continue with Google",
-    "emailCta": "Continue with Email OTP"
+    "emailCta": "Continue with Email OTP",
+    "linkedinCta": "Continue with LinkedIn",
+    "emailInputPlaceholder": "Enter your email",
+    "sendMagicLinkCta": "Send Magic Link",
+    "emailSentSuccess": "Magic link sent! Check your email.",
+    "emailLoginError": "Error sending magic link. Please try again.",
+    "emailInvalid": "Please enter a valid email address.",
+    "enterEmail": "Enter your email",
+    "loading": "Loading...",
+    "error": "An error occurred. Please try again.",
+    "retryButton": "Retry",
+    "checkEmailDescription": "We've sent a magic link to {email}. Please check your inbox and click the link to log in.",
+    "resendEmail": "Resend Email"
   },
   "roleSelectionScreen": {
     "title": "Select the position you're interested in",

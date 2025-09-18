@@ -46,7 +46,18 @@
     "title": "Tạo tài khoản hoặc Đăng nhập",
     "subtitle": "Chọn phương thức thuận tiện nhất để tiếp tục.",
     "googleCta": "Tiếp tục với Google",
-    "emailCta": "Tiếp tục với Email OTP"
+    "emailCta": "Tiếp tục với Email OTP",
+    "linkedinCta": "Tiếp tục với LinkedIn",
+    "emailInputPlaceholder": "Nhập email của bạn",
+    "sendMagicLinkCta": "Gửi liên kết đăng nhập",
+    "emailSentSuccess": "Đã gửi liên kết đăng nhập! Kiểm tra email của bạn.",
+    "emailLoginError": "Lỗi khi gửi liên kết đăng nhập. Vui lòng thử lại.",
+    "emailInvalid": "Vui lòng nhập địa chỉ email hợp lệ.",
+    "enterEmail": "Nhập email của bạn",
+    "loading": "Đang tải...",
+    "error": "Đã xảy ra lỗi. Vui lòng thử lại.",
+    "retryButton": "Thử lại",
+    "checkEmailDescription": "Chúng tôi đã gửi một liên kết đăng nhập đến {email}. Vui lòng kiểm tra hộp thư đến và nhấp vào liên kết để đăng nhập."
   },
   "roleSelectionScreen": {
     "title": "Chọn vị trí bạn quan tâm",
