@@ -12,9 +12,9 @@ import { LandingPage } from '@/types/landingPage';
 interface SupabaseQuestionData {
   id: string;
   text: string;
-  type: string;
-  format: 'text' | 'multiple_choice';
-  required: boolean;
+  type?: string;
+  format: 'text' | 'multiple_choice' | 'multiple-choice';
+  required?: boolean;
   options: {
     id: string;
     option_text: string;
@@ -170,7 +170,6 @@ export const getQuestionsByRole = async (role: string): Promise<Question[]> => {
     .select(`
       id,
       text,
-      type,
       format,
       required,
       options:question_options(id, option_text, is_correct)
@@ -183,15 +182,17 @@ export const getQuestionsByRole = async (role: string): Promise<Question[]> => {
   }
 
   const formattedData = (data as SupabaseQuestionData[]).map(q => {
+    const format = q.format === 'multiple-choice' ? 'multiple_choice' : q.format;
     const formattedQuestion: Question = {
       id: q.id,
       text: q.text,
-      type: q.type,
-      format: q.format,
-      required: q.required,
+      type: q.type ?? 'General',
+      format,
+      required: q.required ?? true,
+      points: 0,
     };
 
-    if (q.format === 'multiple_choice' && q.options) {
+    if (format === 'multiple_choice' && q.options) {
       formattedQuestion.options = q.options.map(opt => ({
         id: opt.id,
         text: opt.option_text,
@@ -228,7 +229,6 @@ export const createQuestion = async (questionData: Omit<Question, 'id'>, targetR
     .from('questions')
     .insert([{
       text: questionData.text,
-      type: questionData.type,
       format: questionData.format,
       required: questionData.required,
       assessment_id: assessment.id
@@ -258,7 +258,11 @@ export const createQuestion = async (questionData: Omit<Question, 'id'>, targetR
     }
   }
 
-  return newQuestion;
+  return {
+    ...newQuestion,
+    format: newQuestion.format === 'multiple-choice' ? 'multiple_choice' : newQuestion.format,
+    type: questionData.type ?? 'General',
+  };
 };
 
 /**
@@ -271,7 +275,6 @@ export const updateQuestion = async (questionData: Partial<Question>): Promise<v
     .from('questions')
     .update({
       text: questionData.text,
-      type: questionData.type,
       format: questionData.format,
       required: questionData.required,
     })
@@ -497,7 +500,7 @@ export const getAssessment = async (role: string) => {
       title,
       description,
       duration,
-      questions:questions(id, text, type, format, required, options:question_options(id, option_text, is_correct))
+      questions:questions(id, text, format, required, options:question_options(id, option_text, is_correct))
     `)
     .eq('target_role', role)
     .single();
@@ -507,7 +510,22 @@ export const getAssessment = async (role: string) => {
     throw new Error('Không thể tải bài đánh giá.');
   }
 
-  return data;
+  if (!data) {
+    return null;
+  }
+
+  const normalisedQuestions = data.questions?.map((question) => ({
+    ...question,
+    type: 'General',
+    format: question.format === 'multiple-choice' ? 'multiple_choice' : question.format,
+    required: question.required ?? true,
+    points: 0,
+  })) ?? [];
+
+  return {
+    ...data,
+    questions: normalisedQuestions,
+  };
 };
 
 export const getQuestionsByIds = async (questionIds: string[]) => {
@@ -516,8 +534,8 @@ export const getQuestionsByIds = async (questionIds: string[]) => {
     .select(`
       id,
       text,
-      type,
       format,
+      required,
       options:question_options(id, option_text, is_correct)
     `)
     .in('id', questionIds);
@@ -529,6 +547,7 @@ export const getQuestionsByIds = async (questionIds: string[]) => {
 
   // Map the data to the correct Question interface
   const formattedData = (data as SupabaseQuestionData[]).map(q => {
+    const format = q.format === 'multiple-choice' ? 'multiple_choice' : q.format;
     // Format options and correctAnswer
     const formattedOptions = q.options?.map(opt => ({
       id: opt.id,
@@ -539,11 +558,11 @@ export const getQuestionsByIds = async (questionIds: string[]) => {
     return {
       id: q.id,
       text: q.text,
-      type: q.type,
-      format: q.format,
+      type: q.type ?? 'General',
+      format,
       // You may need to provide a default value for 'required' and 'points'
       // if they are missing from the select query
-      required: true,
+      required: q.required ?? true,
       points: 0,
       options: formattedOptions,
       correctAnswer: correctAnswerId,

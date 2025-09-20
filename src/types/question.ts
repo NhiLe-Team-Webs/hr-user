@@ -1,7 +1,7 @@
 // src/types/question.ts
 
 export const QUESTION_TYPES = [
-  'multiple-choice',
+  'multiple_choice',
   'text',
   'technical',
   'mcq',
@@ -13,7 +13,6 @@ export type QuestionType =
 
 export const QUESTION_FORMATS = [
   'text',
-  'multiple-choice',
   'multiple_choice',
   'single',
 ] as const;
