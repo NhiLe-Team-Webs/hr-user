@@ -1,12 +1,13 @@
-// src/components/AssessmentScreen.tsx
+﻿// src/components/AssessmentScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
-import { getAssessment, getQuestionsByIds } from '../lib/api';
-import { Role, UserAnswers, Question } from '../types/assessment';
+import { getAssessment, upsertAnswer, submitAssessmentAttempt } from '../lib/api';
+import { Role, UserAnswers, Question, AnswerValue } from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
+import { useAssessment } from '@/contexts/AssessmentContext';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,16 +24,173 @@ interface AssessmentScreenProps {
 }
 
 const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) => {
+  const { activeAttempt, updateActiveAttempt } = useAssessment();
   const { t } = useLanguage();
   const [assessment, setAssessment] = useState(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
-  const hasAnsweredCurrent = typeof userAnswers[currentQuestionIndex] !== 'undefined';
+  const [answerRecords, setAnswerRecords] = useState<Record<string, { id: string; value: string }>>({});
+  const currentQuestion = questions[currentQuestionIndex];
+  const currentAnswer = userAnswers[currentQuestionIndex];
+  const hasAnsweredCurrent = currentQuestion?.format === 'multiple_choice'
+    ? typeof currentAnswer !== 'undefined'
+    : typeof currentAnswer === 'string' && currentAnswer.trim().length > 0;
   const [tabViolations, setTabViolations] = useState(0);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [, setError] = useState<string | null>(null);
+
+  const ensureAnswerPersisted = useCallback(
+    async (questionIndex: number, overrideRawValue?: AnswerValue) => {
+      const question = questions[questionIndex];
+      if (!question || !activeAttempt) {
+        return;
+      }
+
+      const rawValue =
+        typeof overrideRawValue !== 'undefined'
+          ? overrideRawValue
+          : userAnswers[questionIndex];
+
+      if (
+        typeof rawValue === 'undefined' ||
+        rawValue === null ||
+        (question.format !== 'multiple_choice' &&
+          typeof rawValue === 'string' &&
+          rawValue.trim() === '')
+      ) {
+        return;
+      }
+
+      let selectedOptionId: string | null = null;
+      let userAnswerText: string | null = null;
+      let persistedValue = '';
+
+      if (question.format === 'multiple_choice') {
+        const optionIndex = Number(rawValue);
+        const selectedOption = question.options?.[optionIndex];
+        if (!selectedOption) {
+          return;
+        }
+        selectedOptionId = selectedOption.id;
+        persistedValue = selectedOptionId;
+      } else {
+        const textValue = String(rawValue);
+        userAnswerText = textValue;
+        persistedValue = textValue;
+      }
+
+      const existingRecord = answerRecords[question.id];
+      if (existingRecord && existingRecord.value === persistedValue) {
+        return;
+      }
+
+      try {
+        const result = await upsertAnswer({
+          id: existingRecord?.id,
+          attemptId: activeAttempt.id,
+          questionId: question.id,
+          selectedOptionId,
+          userAnswerText,
+        });
+
+        if (result?.id) {
+          setAnswerRecords((prev) => ({
+            ...prev,
+            [question.id]: { id: result.id, value: persistedValue },
+          }));
+          updateActiveAttempt({ lastActivityAt: new Date().toISOString() });
+        }
+      } catch (error) {
+        console.error('Failed to persist answer for question', question.id, error);
+      }
+    },
+    [activeAttempt, answerRecords, questions, updateActiveAttempt, userAnswers],
+  );
+  const persistAllAnswers = useCallback(async () => {
+    if (!activeAttempt) {
+      return;
+    }
+    await Promise.all(questions.map((_, index) => ensureAnswerPersisted(index)));
+  }, [activeAttempt, questions, ensureAnswerPersisted]);
+
+  const finishAssessment = useCallback(async () => {
+    if (!activeAttempt) {
+      onFinish();
+      return;
+    }
+    await persistAllAnswers();
+    try {
+      const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
+      updateActiveAttempt(updatedAttempt);
+    } catch (error) {
+      console.error('Failed to submit attempt:', error);
+    }
+    onFinish();
+  }, [activeAttempt, persistAllAnswers, updateActiveAttempt, onFinish]);
+
+  // Timer logic
+  useEffect(() => {
+    if (timeLeft <= 0 && timeLeft !== 0) {
+      void finishAssessment();
+      return;
+    }
+
+    if (timeLeft > 0) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+
+    return undefined;
+  }, [timeLeft, finishAssessment]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setTabViolations((prev) => prev + 1);
+        setIsAlertOpen(true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [role]);
+
+  useEffect(() => {
+    if (tabViolations >= 3) {
+      void finishAssessment();
+    }
+  }, [tabViolations, finishAssessment]);
+
+  const saveAnswer = (questionIndex: number, answer: AnswerValue) => {
+    setUserAnswers((prev) => ({
+      ...prev,
+      [questionIndex]: answer,
+    }));
+  };
+
+  const handleOptionSelect = (optionIndex: number) => {
+    saveAnswer(currentQuestionIndex, optionIndex);
+    void ensureAnswerPersisted(currentQuestionIndex, optionIndex);
+  };
+
+  const navigateQuestion = useCallback(
+    async (direction: number) => {
+      await ensureAnswerPersisted(currentQuestionIndex);
+      const newIndex = currentQuestionIndex + direction;
+      if (newIndex >= 0 && newIndex < questions.length) {
+        setCurrentQuestionIndex(newIndex);
+      }
+    },
+    [currentQuestionIndex, questions.length, ensureAnswerPersisted],
+  );
 
   // Fetch assessment data from API
   useEffect(() => {
@@ -81,19 +239,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   fetchData();
 }, [role, t]);
 
-  // Timer logic
-  useEffect(() => {
-    if (timeLeft <= 0 && timeLeft !== 0) {
-      onFinish();
-      return;
-    }
-    if (timeLeft > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [timeLeft, onFinish]);
+
 
   // Format time as MM:SS
   const formatTime = (seconds: number) => {
@@ -119,32 +265,10 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
   useEffect(() => {
     if (tabViolations >= 3) {
-      onFinish();
+      void finishAssessment();
     }
-  }, [tabViolations, onFinish]);
+  }, [tabViolations, finishAssessment]);
 
-  const finishAssessment = () => {
-    onFinish();
-  };
-
-  const handleOptionSelect = (optionIndex: number) => {
-    saveAnswer(currentQuestionIndex, optionIndex);
-  };
-
-  const saveAnswer = (questionIndex: number, answer: string | number) => {
-    setUserAnswers(prev => ({
-      ...prev,
-      [questionIndex]: answer
-    }));
-  };
-
-  const navigateQuestion = (direction: number) => {
-    const newIndex = currentQuestionIndex + direction;
-    if (newIndex >= 0 && newIndex < questions.length) {
-      setCurrentQuestionIndex(newIndex);
-    }
-  };
-  
   const renderQuestion = () => {
     if (!questions || questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
     const question = questions[currentQuestionIndex];
@@ -189,8 +313,9 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           ) : (
             <Textarea
               placeholder={t('assessmentScreen.typeYourAnswer')}
-              value={userAnswers[currentQuestionIndex] || ''}
+              value={typeof userAnswers[currentQuestionIndex] === 'string' ? (userAnswers[currentQuestionIndex] as string) : ''}
               onChange={(e) => saveAnswer(currentQuestionIndex, e.target.value)}
+              onBlur={() => void ensureAnswerPersisted(currentQuestionIndex)}
               className="min-h-[150px] p-4 border-2 rounded-2xl focus:border-blue-500 focus:ring-blue-500 transition-all duration-300"
             />
           )}
@@ -200,13 +325,21 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   };
 
   if (loading) {
-    return <div className="text-center p-8">Đang tải bài đánh giá...</div>;
+    return <div className="text-center p-8">Äang táº£i bÃ i Ä‘Ã¡nh giÃ¡...</div>;
   }
   
   if (!assessment) {
     return <div className="text-center p-8 text-red-500">Không có bài đánh giá nào cho vai trò này.</div>;
   }
 
+  if (!activeAttempt) {
+    return (
+      <div className="text-center p-8 space-y-4">
+        <p className="text-muted-foreground">Không tìm thấy phiên làm bài hợp lệ. Vui lòng quay lại bước trước để bắt đầu lại.</p>
+        <Button onClick={() => window.history.back()} className="apple-button">Quay lại</Button>
+      </div>
+    );
+  }
   return (
     <motion.div
       key="assessment"
@@ -257,7 +390,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               />
             </div>
             <div className="flex justify-between items-center mt-2 text-sm text-gray-600">
-              <span>Câu {currentQuestionIndex + 1}/{questions.length}</span>
+              <span>CÃ¢u {currentQuestionIndex + 1}/{questions.length}</span>
               <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
             </div>
           </motion.div>
@@ -279,7 +412,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
       >
         <div className="max-w-4xl mx-auto p-4 flex justify-between items-center">
           <Button
-            onClick={() => navigateQuestion(-1)}
+            onClick={() => void navigateQuestion(-1)}
             disabled={currentQuestionIndex === 0}
             variant="outline"
             className="flex items-center gap-2 px-6 py-3 rounded-xl"
@@ -290,7 +423,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           
           {currentQuestionIndex === questions.length - 1 ? (
             <Button
-              onClick={finishAssessment}
+              onClick={() => void finishAssessment()}
               disabled={!hasAnsweredCurrent}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
                 hasAnsweredCurrent 
@@ -303,7 +436,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
             </Button>
           ) : (
             <Button
-              onClick={() => navigateQuestion(1)}
+              onClick={() => void navigateQuestion(1)}
               disabled={!hasAnsweredCurrent}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
                 hasAnsweredCurrent 
@@ -324,14 +457,14 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#EA3323">
                 <path d="m40-120 440-760 440 760H40Zm115.33-66.67h649.34L480-746.67l-324.67 560ZM482.78-238q14.22 0 23.72-9.62 9.5-9.61 9.5-23.83 0-14.22-9.62-23.72-9.5-14.22 0-23.72 9.62-9.62 9.5 23.83 0 14.22 9.62 23.72 9.62 9.5 23.83 9.5Zm-33.45-114H516v-216h-66.67v216ZM480-466.67Z"/>
               </svg>
-              <AlertDialogTitle>Cảnh báo Gian lận!</AlertDialogTitle>
+              <AlertDialogTitle>Cáº£nh bÃ¡o Gian láº­n!</AlertDialogTitle>
             </div>
             <AlertDialogDescription>
-              Bạn đã chuyển tab trong khi làm bài. Bài kiểm tra của bạn sẽ bị hủy nếu bạn vi phạm thêm {3 - tabViolations} lần nữa.
+              Báº¡n Ä‘Ã£ chuyá»ƒn tab trong khi lÃ m bÃ i. BÃ i kiá»ƒm tra cá»§a báº¡n sáº½ bá»‹ há»§y náº¿u báº¡n vi pháº¡m thÃªm {3 - tabViolations} láº§n ná»¯a.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setIsAlertOpen(false)}>Quay lại bài làm</AlertDialogAction>
+            <AlertDialogAction onClick={() => setIsAlertOpen(false)}>Quay láº¡i bÃ i lÃ m</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -340,3 +473,25 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 };
 
 export default AssessmentScreen;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

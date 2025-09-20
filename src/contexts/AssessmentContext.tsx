@@ -1,15 +1,18 @@
-import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
-import type { Role, AssessmentResult } from '@/types/assessment';
+﻿import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import type { Role, AssessmentResult, AssessmentAttempt } from '@/types/assessment';
 
 interface AssessmentState {
   selectedRole: Role | null;
   assessmentResult: AssessmentResult | null;
+  activeAttempt: AssessmentAttempt | null;
 }
 
 interface AssessmentContextValue extends AssessmentState {
   isHydrated: boolean;
   setSelectedRole: (role: Role | null) => void;
   setAssessmentResult: (result: AssessmentResult | null) => void;
+  setActiveAttempt: (attempt: AssessmentAttempt | null) => void;
+  updateActiveAttempt: (update: Partial<AssessmentAttempt>) => void;
   resetAssessment: () => void;
 }
 
@@ -18,6 +21,7 @@ const STORAGE_KEY = 'hr-assessment-state';
 const initialState: AssessmentState = {
   selectedRole: null,
   assessmentResult: null,
+  activeAttempt: null,
 };
 
 const AssessmentContext = createContext<AssessmentContextValue | undefined>(undefined);
@@ -34,6 +38,7 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
         setState({
           selectedRole: parsed.selectedRole ?? null,
           assessmentResult: parsed.assessmentResult ?? null,
+          activeAttempt: parsed.activeAttempt ?? null,
         });
       }
     } catch (error) {
@@ -60,6 +65,7 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
       ...prev,
       selectedRole: role,
       assessmentResult: role ? prev.assessmentResult : null,
+      activeAttempt: role ? prev.activeAttempt : null,
     }));
   };
 
@@ -68,6 +74,28 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
       ...prev,
       assessmentResult: result,
     }));
+  };
+
+  const setActiveAttempt = (attempt: AssessmentAttempt | null) => {
+    setState((prev) => ({
+      ...prev,
+      activeAttempt: attempt,
+    }));
+  };
+
+  const updateActiveAttempt = (update: Partial<AssessmentAttempt>) => {
+    setState((prev) => {
+      if (!prev.activeAttempt) {
+        return prev;
+      }
+      return {
+        ...prev,
+        activeAttempt: {
+          ...prev.activeAttempt,
+          ...update,
+        },
+      };
+    });
   };
 
   const resetAssessment = () => {
@@ -80,6 +108,8 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
       isHydrated,
       setSelectedRole,
       setAssessmentResult,
+      setActiveAttempt,
+      updateActiveAttempt,
       resetAssessment,
     }),
     [state, isHydrated],
@@ -95,3 +125,4 @@ export const useAssessment = () => {
   }
   return context;
 };
+

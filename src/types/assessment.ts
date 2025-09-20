@@ -16,9 +16,9 @@ export interface Option {
   text: string;
 }
 
-export interface UserAnswers {
-  [questionIndex: number]: number;
-}
+export type AnswerValue = string | number;
+
+export type UserAnswers = Record<number, AnswerValue>;
 
 export interface Assessment {
   id: string;
@@ -39,4 +39,18 @@ export interface Role {
 export interface AssessmentResult {
   score: number;
   strengths: string[];
+}
+
+
+
+export interface AssessmentAttempt {
+  id: string;
+  status: string;
+  answeredCount: number;
+  totalQuestions: number;
+  progressPercent: number;
+  startedAt?: string | null;
+  submittedAt?: string | null;
+  completedAt?: string | null;
+  lastActivityAt?: string | null;
 }
