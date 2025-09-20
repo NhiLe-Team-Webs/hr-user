@@ -2,7 +2,7 @@
 
 import { supabase } from './supabaseClient';
 import { Question, QuestionsByRole } from '../types/question';
-import { LandingPage } from '../types/landingPage';
+import { LandingPage } from '@/types/landingPage';
 
 // ===========================================
 // === INTERFACES ĐỂ ĐẢM BẢO AN TOÀN KIỂU ===
@@ -22,14 +22,6 @@ interface SupabaseQuestionData {
   }[];
 }
 
-interface CandidateData {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  band: string;
-  results: { total_score: number | null }[];
-}
 
 // Interfaces cho hàm updateCandidateInfo
 interface ProfileUpdates {
@@ -55,10 +47,10 @@ interface SupabaseAnalyticsAssessment {
   target_role: string;
 }
 
-interface SupabaseAnalyticsData {
+interface SupabaseAnalyticsRow {
   total_score: number | null;
-  user: SupabaseAnalyticsUser | null;
-  assessment: SupabaseAnalyticsAssessment | null;
+  assessment: SupabaseAnalyticsAssessment[] | null;
+  user: SupabaseAnalyticsUser[] | null;
 }
 
 // Interfaces cho hàm getCandidates
@@ -69,6 +61,22 @@ interface SupabaseCandidateProfile {
   role: string;
   band: string | null;
   results: { total_score: number | null }[];
+}
+
+interface CandidateInfo {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  role: string | null;
+  band: string | null;
+  avatarChar: string;
+  scores: {
+    overall: number | null;
+  };
+  status: 'completed' | 'in_progress';
+  startTime: Date;
+  phone: string;
+  telegram: string;
 }
 
 
@@ -367,22 +375,33 @@ export const getAnalyticsData = async () => {
     `);
 
   if (error) {
-    console.error('Lỗi khi tải dữ liệu phân tích:', error);
-    throw new Error('Không thể tải dữ liệu phân tích.');
+    console.error('Failed to fetch analytics data:', error);
+    throw new Error('Unable to fetch analytics data.');
   }
 
-  const formattedData = (data as SupabaseAnalyticsData[])
-    .filter(item => item.user)
-    .map(item => ({
-      id: item.user!.id,
-      name: item.user!.name ?? 'Unknown',
-      role: item.assessment?.target_role ?? 'Unknown',
-      band: item.user!.band,
-      scores: {
-        overall: item.total_score,
-      },
-      status: 'completed' as const,
-    }));
+  const rows = (data as SupabaseAnalyticsRow[]) ?? [];
+
+  const formattedData = rows
+    .map((item) => {
+      const user = item.user?.[0] ?? null;
+      if (!user?.id) {
+        return null;
+      }
+
+      const assessment = item.assessment?.[0] ?? null;
+
+      return {
+        id: user.id,
+        name: user.name ?? 'Unknown',
+        role: assessment?.target_role ?? 'Unknown',
+        band: user.band,
+        scores: {
+          overall: item.total_score,
+        },
+        status: 'completed' as const,
+      };
+    })
+    .filter((item): item is Exclude<typeof item, null> => item !== null);
 
   return formattedData;
 };
@@ -443,21 +462,29 @@ export const getCandidates = async (): Promise<CandidateInfo[]> => {
     console.error('Lỗi khi tải dữ liệu ứng viên:', error);
     throw new Error('Không thể tải dữ liệu ứng viên.');
   }
-  const formattedData = (data as SupabaseCandidateProfile[]).map(item => ({
-    id: item.id,
-    fullName: item.name,
-    email: item.email,
-    role: item.role,
-    band: item.band,
-    avatarChar: item.name ? item.name.charAt(0).toUpperCase() : '?',
-    scores: {
-      overall: item.results.length > 0 ? item.results[0].total_score : null,
-    },
-    status: item.results.length > 0 ? 'completed' : 'in_progress',
-    startTime: new Date(),
-    phone: 'N/A',
-    telegram: 'N/A',
-  }));
+  const rows = (data as SupabaseCandidateProfile[]) ?? [];
+
+  const formattedData: CandidateInfo[] = rows.map((item) => {
+    const hasResults = Array.isArray(item.results) && item.results.length > 0;
+    const overallScore = hasResults ? item.results[0]?.total_score ?? null : null;
+    const status: CandidateInfo['status'] = hasResults && overallScore !== null ? 'completed' : 'in_progress';
+
+    return {
+      id: item.id,
+      fullName: item.name ?? null,
+      email: item.email ?? null,
+      role: item.role ?? null,
+      band: item.band ?? null,
+      avatarChar: item.name?.charAt(0).toUpperCase() ?? '?',
+      scores: {
+        overall: overallScore,
+      },
+      status,
+      startTime: new Date(),
+      phone: 'N/A',
+      telegram: 'N/A',
+    };
+  });
 
   return formattedData;
 };
@@ -483,13 +510,6 @@ export const getAssessment = async (role: string) => {
   return data;
 };
 
-// src/lib/api.ts
-
-// ...các hàm khác
-
-/**
- * Lấy các câu hỏi dựa trên một danh sách IDs.
- */
 export const getQuestionsByIds = async (questionIds: string[]) => {
   const { data, error } = await supabase
     .from('questions')
@@ -534,4 +554,3 @@ export const getQuestionsByIds = async (questionIds: string[]) => {
 };
 
 
-// ... các hàm khác
