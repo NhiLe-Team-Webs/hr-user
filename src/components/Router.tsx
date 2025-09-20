@@ -1,6 +1,6 @@
-// src/components/Router.tsx
-import React, { useState } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
 import LoginScreen from './LoginScreen';
 import RoleSelectionScreen from './RoleSelectionScreen';
@@ -8,51 +8,218 @@ import AssessmentScreen from './AssessmentScreen';
 import ResultScreen from './ResultScreen';
 import TryoutScreen from './TryoutScreen';
 import NotFound from '../pages/NotFound';
-import { Role } from '../types/assessment';
+import PreAssessmentScreen from './PreAssessmentScreen';
+import type { AssessmentResult } from '@/types/assessment';
+import { useAuth } from '@/contexts/AuthContext';
+import { useAssessment } from '@/contexts/AssessmentContext';
+import { useLanguage } from '@/hooks/useLanguage';
+import ErrorPage from '../pages/ErrorPage';
 
-// Define the new interface here
-interface AssessmentResult {
-  score: number;
-  strengths: string[];
-}
+const FullScreenLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="flex flex-col items-center gap-4 text-gray-600">
+      <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200 border-t-primary" />
+      <span>Đang tải dữ liệu...</span>
+    </div>
+  </div>
+);
+
+const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
+  const { user } = useAuth();
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+};
 
 const Router = () => {
+  const location = useLocation();
+  const { status } = useAuth();
+  const { isHydrated } = useAssessment();
+
+  if (status !== 'ready' || !isHydrated) {
+    return <FullScreenLoader />;
+  }
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<LandingRoute />} />
+        <Route path="/login" element={<LoginRoute />} />
+        <Route
+          path="/role-selection"
+          element={(
+            <ProtectedRoute>
+              <RoleSelectionRoute />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/pre-assessment"
+          element={(
+            <ProtectedRoute>
+              <PreAssessmentRoute />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/assessment"
+          element={(
+            <ProtectedRoute>
+              <AssessmentRoute />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/result"
+          element={(
+            <ProtectedRoute>
+              <ResultRoute />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/tryout"
+          element={(
+            <ProtectedRoute>
+              <TryoutRoute />
+            </ProtectedRoute>
+          )}
+        />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </AnimatePresence>
+  );
+};
+
+const LandingRoute = () => {
   const navigate = useNavigate();
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-  // Use the new interface for useState
-  const [assessmentResult, setAssessmentResult] = useState<AssessmentResult | null>(null);
+  const { user } = useAuth();
 
-  const handleRoleSelect = (role: Role) => {
-    setSelectedRole(role);
-    navigate("/assessment");
-  };
+  if (user) {
+    return <Navigate to="/result" replace />;
+  }
 
-  // Use the new interface for the function parameter
-  const handleFinishAssessment = (result: AssessmentResult) => {
-    setAssessmentResult(result);
-    navigate("/result");
-  };
+  return (
+    <LandingScreen
+      onLoginClick={() => {
+        navigate('/login');
+      }}
+    />
+  );
+};
 
-  const handleTryoutClick = () => {
-    navigate("/tryout");
-  };
+const LoginRoute = () => {
+  const { user } = useAuth();
 
-  const handleStartTask = () => {
-    console.log("Starting a tryout task...");
+  if (user) {
+    return <Navigate to="/result" replace />;
+  }
+
+  return <LoginScreen />;
+};
+
+const RoleSelectionRoute = () => {
+  const navigate = useNavigate();
+  const { setSelectedRole } = useAssessment();
+
+  return (
+    <RoleSelectionScreen
+      onRoleSelect={(role) => {
+        setSelectedRole(role);
+        navigate('/pre-assessment');
+      }}
+    />
+  );
+};
+
+const PreAssessmentRoute = () => {
+  const navigate = useNavigate();
+  const { selectedRole } = useAssessment();
+
+  if (!selectedRole) {
+    return <Navigate to="/role-selection" replace />;
+  }
+
+  return (
+    <PreAssessmentScreen
+      role={selectedRole}
+      onStartAssessment={() => {
+        navigate('/assessment');
+      }}
+    />
+  );
+};
+
+const AssessmentRoute = () => {
+  const navigate = useNavigate();
+  const { selectedRole, setAssessmentResult } = useAssessment();
+  const { t } = useLanguage();
+
+  if (!selectedRole) {
+    return <Navigate to="/role-selection" replace />;
+  }
+
+  const fallbackResult: AssessmentResult = {
+    score: 80,
+    strengths: [
+      t('strengths.strength1'),
+      t('strengths.strength3'),
+      t('strengths.strength5'),
+    ],
   };
 
   return (
-    <Routes>
-      <Route path="/" element={<LandingScreen onLoginClick={() => navigate("/login")} />} />
-      <Route path="/login" element={<LoginScreen onRoleSelectionClick={() => navigate("/role-selection")} />} />
-      <Route path="/role-selection" element={<RoleSelectionScreen onRoleSelect={handleRoleSelect} />} />
-      <Route path="/assessment" element={<AssessmentScreen role={selectedRole as Role} onFinish={handleFinishAssessment} />} />
-      {/* Pass the result to ResultScreen */}
-      <Route path="/result" element={<ResultScreen result={assessmentResult as AssessmentResult} onTryoutClick={handleTryoutClick} />} />
-      <Route path="/tryout" element={<TryoutScreen onStartTask={handleStartTask} />} />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+    <AssessmentScreen
+      role={selectedRole}
+      onFinish={() => {
+        setAssessmentResult(fallbackResult);
+        navigate('/result');
+      }}
+    />
+  );
+};
+
+const ResultRoute = () => {
+  const navigate = useNavigate();
+  const { assessmentResult } = useAssessment();
+  const { t } = useLanguage();
+
+  if (!assessmentResult) {
+    return (
+      <ErrorPage
+        title={t('resultScreen.missingTitle')}
+        description={t('resultScreen.missingDescription')}
+        ctaLabel={t('resultScreen.backToSelection')}
+        onRetry={() => {
+          navigate('/role-selection');
+        }}
+      />
+    );
+  }
+
+  return (
+    <ResultScreen
+      result={assessmentResult}
+      onTryoutClick={() => {
+        navigate('/tryout');
+      }}
+    />
+  );
+};
+
+const TryoutRoute = () => {
+  return (
+    <TryoutScreen
+      onStartTask={() => {
+        console.log('Starting a tryout task...');
+      }}
+    />
   );
 };
 
 export default Router;
+
+

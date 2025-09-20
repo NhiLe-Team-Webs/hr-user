@@ -4,6 +4,22 @@ import { supabase } from './supabaseClient';
 import { Question, QuestionsByRole } from '../types/question';
 import { LandingPage } from '@/types/landingPage';
 
+
+const landingPageFallbacks = {
+  error_title: 'Có lỗi xảy ra',
+  error_subtitle: 'Chúng tôi đang kiểm tra sự cố. Vui lòng thử lại sau ít phút.',
+  error_cta_text: 'Quay về trang chủ',
+  error_cta_link: '/',
+} as const;
+
+const applyLandingPageFallbacks = (payload: LandingPage): LandingPage => ({
+  ...payload,
+  error_title: payload.error_title ?? landingPageFallbacks.error_title,
+  error_subtitle: payload.error_subtitle ?? landingPageFallbacks.error_subtitle,
+  error_cta_text: payload.error_cta_text ?? landingPageFallbacks.error_cta_text,
+  error_cta_link: payload.error_cta_link ?? landingPageFallbacks.error_cta_link,
+});
+
 // ===========================================
 // === INTERFACES ĐỂ ĐẢM BẢO AN TOÀN KIỂU ===
 // ===========================================
@@ -108,7 +124,7 @@ export const getLandingPageData = async (): Promise<LandingPage> => {
     console.error('Lỗi khi tải dữ liệu landing page:', error);
     throw new Error('Không thể tải dữ liệu landing page.');
   }
-  return data as LandingPage;
+  return applyLandingPageFallbacks(data as LandingPage);
 };
 
 /**

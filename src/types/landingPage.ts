@@ -17,6 +17,10 @@ export interface LandingPage {
   vocational_text?: string | null;
   vocational_cta_text?: string | null;
   vocational_cta_link?: string | null;
+  error_title?: string | null;
+  error_subtitle?: string | null;
+  error_cta_text?: string | null;
+  error_cta_link?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: unknown;
@@ -32,4 +36,3 @@ export interface LandingPageStat {
   title?: string | null;
   description?: string | null;
 }
-

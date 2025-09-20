@@ -58,7 +58,12 @@
     "error": "An error occurred. Please try again.",
     "retryButton": "Retry",
     "checkEmailDescription": "We've sent a magic link to {email}. Please check your inbox and click the link to log in.",
-    "resendEmail": "Resend Email"
+    "resendEmail": "Resend Email",
+    "emailSentTitle": "Check your email",
+    "emailSentDescription": "We've sent a sign-in link to {email}. It may take a minute to arrive.",
+    "genericError": "We could not complete that action. Please try again shortly.",
+    "alreadySignedIn": "You're already signed in. Redirecting to your results...",
+    "oauthInProgress": "Opening the provider securely..."
   },
   "roleSelectionScreen": {
     "title": "Select the position you're interested in",
@@ -101,7 +106,10 @@
     "successCta": "Schedule Interview",
     "tryoutText": "You have shown great potential. To understand your practical skills better, we invite you to join our Tryout/Volunteer Program.",
     "tryoutCta": "Continue to Tryout Program",
-    "thankyou": "Thank you for completing!"
+    "thankyou": "Thank you for completing!",
+    "missingTitle": "We could not find your latest results yet.",
+    "missingDescription": "Please complete the assessment first or refresh this page once your results are ready.",
+    "backToSelection": "Back to role selection"
   },
   "tryoutScreen": {
     "title": "Welcome to the Tryout Center",
@@ -127,5 +135,11 @@
     "strength4": "Collaborative Spirit",
     "strength5": "Attention to Detail",
     "strength6": "Customer Empathy"
+  },
+  "errorPage": {
+    "title": "Something went wrong",
+    "description": "We could not complete your request. Please try again, or return to the start and continue later.",
+    "cta": "Back to start",
+    "support": "Need a hand? Contact our team at support@nhile.team."
   }
 }
