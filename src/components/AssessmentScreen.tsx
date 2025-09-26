@@ -1,13 +1,17 @@
-﻿// src/components/AssessmentScreen.tsx
+// src/components/AssessmentScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
-import { Textarea } from './ui/textarea';
-import { getAssessment, upsertAnswer, submitAssessmentAttempt } from '../lib/api';
-import { Role, UserAnswers, Question, AnswerValue } from '../types/assessment';
+import { getAssessment, upsertAnswer, submitAssessmentAttempt, getAttemptAnswerDetails } from '../lib/api';
+import { saveAssessmentResultAnalysis } from '../lib/api';
+import { analyzeWithGemini } from '../lib/api/gemini';
+import { renderQuestion } from './assessment/renderQuestion';
+import type { Assessment, Role, UserAnswers, AnswerValue } from '../types/assessment';
+import type { Question } from '@/types/question';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAssessment } from '@/contexts/AssessmentContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,24 +27,33 @@ interface AssessmentScreenProps {
   onFinish: () => void;
 }
 
+interface AnswerRecord {
+  id: string;
+  value: string;
+}
+
 const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) => {
-  const { activeAttempt, updateActiveAttempt } = useAssessment();
+  const { user } = useAuth();
   const { t } = useLanguage();
-  const [assessment, setAssessment] = useState(null);
+  const { activeAttempt, updateActiveAttempt, setAssessmentResult } = useAssessment();
+
+  const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
-  const [answerRecords, setAnswerRecords] = useState<Record<string, { id: string; value: string }>>({});
+  const [answerRecords, setAnswerRecords] = useState<Record<string, AnswerRecord>>({});
+  const [hasLoadedPersistedAnswers, setHasLoadedPersistedAnswers] = useState(false);
+  const [tabViolations, setTabViolations] = useState(0);
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const currentQuestion = questions[currentQuestionIndex];
   const currentAnswer = userAnswers[currentQuestionIndex];
   const hasAnsweredCurrent = currentQuestion?.format === 'multiple_choice'
     ? typeof currentAnswer !== 'undefined'
     : typeof currentAnswer === 'string' && currentAnswer.trim().length > 0;
-  const [tabViolations, setTabViolations] = useState(0);
-  const [isAlertOpen, setIsAlertOpen] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [, setError] = useState<string | null>(null);
 
   const ensureAnswerPersisted = useCallback(
     async (questionIndex: number, overrideRawValue?: AnswerValue) => {
@@ -103,12 +116,13 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           }));
           updateActiveAttempt({ lastActivityAt: new Date().toISOString() });
         }
-      } catch (error) {
-        console.error('Failed to persist answer for question', question.id, error);
+      } catch (persistError) {
+        console.error('Failed to persist answer for question', question.id, persistError);
       }
     },
     [activeAttempt, answerRecords, questions, updateActiveAttempt, userAnswers],
   );
+
   const persistAllAnswers = useCallback(async () => {
     if (!activeAttempt) {
       return;
@@ -121,17 +135,65 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
       onFinish();
       return;
     }
-    await persistAllAnswers();
-    try {
-      const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
-      updateActiveAttempt(updatedAttempt);
-    } catch (error) {
-      console.error('Failed to submit attempt:', error);
-    }
-    onFinish();
-  }, [activeAttempt, persistAllAnswers, updateActiveAttempt, onFinish]);
 
-  // Timer logic
+    await persistAllAnswers();
+
+    try {
+      const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id, tabViolations);
+      updateActiveAttempt(updatedAttempt);
+
+      const { details, completedCount } = await getAttemptAnswerDetails(updatedAttempt.id);
+      if (completedCount > 0) {
+        updateActiveAttempt({ answeredCount: completedCount });
+      }
+
+      const answersPayload = details.map((detail) => ({
+        questionId: detail.answer.question_id,
+        questionText: detail.question?.text ?? 'Câu hỏi không xác định',
+        format: detail.question?.format ?? 'text',
+        answer: detail.resolvedAnswer,
+      }));
+
+      const analysis = await analyzeWithGemini({
+        answers: answersPayload,
+        cheatingCount: Math.max(tabViolations, updatedAttempt.cheatingCount),
+        completedCount,
+        role: updatedAttempt.role ?? role.name,
+        assessmentTitle: assessment?.title ?? null,
+      });
+
+      const savedResult = await saveAssessmentResultAnalysis({
+        attemptId: updatedAttempt.id,
+        assessmentId: updatedAttempt.assessmentId ?? assessment?.id ?? null,
+        profileId: user?.id ?? null,
+        overallScore: analysis.overallScore,
+        strengths: analysis.strengths ?? [],
+        weaknesses: analysis.weaknesses ?? [],
+        summary: analysis.summary,
+        aiSummary: analysis.aiSummary ?? analysis.summary ?? null,
+        skillScores: analysis.skillScores,
+        completedCount,
+        cheatingCount: Math.max(tabViolations, updatedAttempt.cheatingCount),
+      });
+
+      setAssessmentResult(savedResult);
+    } catch (analysisError) {
+      console.error('Failed to finalise assessment attempt:', analysisError);
+    }
+
+    onFinish();
+  }, [
+    activeAttempt,
+    assessment,
+    onFinish,
+    persistAllAnswers,
+    role.name,
+    setAssessmentResult,
+    tabViolations,
+    updateActiveAttempt,
+    user?.id,
+  ]);
+
   useEffect(() => {
     if (timeLeft <= 0 && timeLeft !== 0) {
       void finishAssessment();
@@ -192,85 +254,107 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     [currentQuestionIndex, questions.length, ensureAnswerPersisted],
   );
 
-  // Fetch assessment data from API
   useEffect(() => {
-  const fetchData = async () => {
-    try {
-      const assessmentData = await getAssessment(role.name);
-      if (!assessmentData) {
-        throw new Error('No assessment data returned');
+    const fetchData = async () => {
+      try {
+        const assessmentData = await getAssessment(role.name);
+        if (!assessmentData) {
+          throw new Error('No assessment data returned');
+        }
+
+        setAssessment(assessmentData);
+        setQuestions(assessmentData.questions);
+        setTimeLeft(assessmentData.duration);
+        setError(null);
+      } catch (fetchError) {
+        setQuestions([]);
+        setError(t('assessmentScreen.errorLoading'));
+        console.error('Error fetching assessment data:', fetchError);
+      } finally {
+        setLoading(false);
       }
-      setAssessment(assessmentData);
-      setTimeLeft(assessmentData.duration);
+    };
 
-      if (assessmentData.questions?.length > 0) {
-        const formattedQuestions: Question[] = assessmentData.questions.map((q: any) => {
-          const formattedQuestion: Question = {
-            id: q.id,
-            text: q.text,
-            type: q.type,
-            format: q.format,
-            required: q.required,
-          };
+    fetchData().catch((err) => {
+      console.error('Unexpected error loading assessment:', err);
+      setLoading(false);
+    });
+  }, [role, t]);
 
-          if (q.format === 'multiple_choice' && q.options) {
-            formattedQuestion.options = q.options.map((opt: any) => ({
-              id: opt.id,
-              text: opt.option_text,
-            }));
-            formattedQuestion.correctAnswer = q.options.find((opt: any) => opt.is_correct)?.id;
+  useEffect(() => {
+    if (!activeAttempt || hasLoadedPersistedAnswers || questions.length === 0) {
+      return;
+    }
+
+    const loadPersistedAnswers = async () => {
+      try {
+        const { details, completedCount } = await getAttemptAnswerDetails(activeAttempt.id);
+        if (details.length === 0) {
+          setHasLoadedPersistedAnswers(true);
+          return;
+        }
+
+        const nextUserAnswers: UserAnswers = {};
+        const nextRecords: Record<string, AnswerRecord> = {};
+
+        details.forEach((detail) => {
+          const questionId = detail.answer.question_id;
+          const questionIndex = questions.findIndex((question) => question.id === questionId);
+
+          if (questionIndex === -1) {
+            return;
           }
 
-          return formattedQuestion;
+          if (detail.question?.format === 'multiple_choice' && detail.answer.selected_option_id) {
+            const optionIndex = detail.question.options?.findIndex(
+              (option) => option.id === detail.answer.selected_option_id,
+            );
+            if (optionIndex != null && optionIndex >= 0) {
+              nextUserAnswers[questionIndex] = optionIndex;
+              nextRecords[questionId] = {
+                id: detail.answer.id,
+                value: detail.answer.selected_option_id,
+              };
+            }
+          } else if (detail.answer.user_answer_text) {
+            nextUserAnswers[questionIndex] = detail.answer.user_answer_text;
+            nextRecords[questionId] = {
+              id: detail.answer.id,
+              value: detail.answer.user_answer_text,
+            };
+          }
         });
-        console.log('Formatted questions:', formattedQuestions); // Debug log
-        setQuestions(formattedQuestions);
-      } else {
-        setQuestions([]);
-        setError(t('assessmentScreen.noQuestions'));
+
+        if (completedCount > 0) {
+          updateActiveAttempt({ answeredCount: completedCount });
+        }
+
+        setUserAnswers((prev) => ({ ...prev, ...nextUserAnswers }));
+        setAnswerRecords((prev) => ({ ...prev, ...nextRecords }));
+      } catch (loadError) {
+        console.error('Failed to load persisted answers:', loadError);
+      } finally {
+        setHasLoadedPersistedAnswers(true);
       }
-    } catch (err) {
-      setError(t('assessmentScreen.errorFetching'));
-      console.error('Error fetching assessment data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  fetchData();
-}, [role, t]);
+    };
 
+    loadPersistedAnswers().catch((err) => {
+      console.error('Unexpected error loading persisted answers:', err);
+      setHasLoadedPersistedAnswers(true);
+    });
+  }, [activeAttempt, hasLoadedPersistedAnswers, questions, updateActiveAttempt]);
 
-
-  // Format time as MM:SS
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setTabViolations(prev => prev + 1);
-        setIsAlertOpen(true);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [role]);
-
-  useEffect(() => {
-    if (tabViolations >= 3) {
-      void finishAssessment();
+  const renderActiveQuestion = () => {
+    if (!questions || questions.length === 0) {
+      return <p>{t('assessmentScreen.noAssessment')}</p>;
     }
-  }, [tabViolations, finishAssessment]);
 
-  const renderQuestion = () => {
-    if (!questions || questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
     const question = questions[currentQuestionIndex];
 
     return (
@@ -279,67 +363,52 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           key={currentQuestionIndex}
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
           className="text-center"
         >
           <h3 className="text-2xl font-bold mb-8 text-gray-800 leading-relaxed">
             {question.text}
           </h3>
         </motion.div>
-        
+
         <div className="space-y-4">
-          {question.format === 'multiple_choice' ? (
-            question.options?.map((option, index) => (
-              <motion.div
-                key={option.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <div
-                  className={`relative flex items-center p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 font-medium text-lg min-h-[70px]
-                  ${userAnswers[currentQuestionIndex] === index
-                      ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
-                      : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
-                  }`}
-                  onClick={() => handleOptionSelect(index)}
-                >
-                  <span className="flex-1 text-left text-sm">{option.text}</span>
-                </div>
-              </motion.div>
-            ))
-          ) : (
-            <Textarea
-              placeholder={t('assessmentScreen.typeYourAnswer')}
-              value={typeof userAnswers[currentQuestionIndex] === 'string' ? (userAnswers[currentQuestionIndex] as string) : ''}
-              onChange={(e) => saveAnswer(currentQuestionIndex, e.target.value)}
-              onBlur={() => void ensureAnswerPersisted(currentQuestionIndex)}
-              className="min-h-[150px] p-4 border-2 rounded-2xl focus:border-blue-500 focus:ring-blue-500 transition-all duration-300"
-            />
-          )}
+          {renderQuestion(question, {
+            currentAnswer,
+            onOptionSelect: handleOptionSelect,
+            onTextChange: (value) => saveAnswer(currentQuestionIndex, value),
+            onTextBlur: () => void ensureAnswerPersisted(currentQuestionIndex),
+            t,
+          })}
         </div>
       </div>
     );
   };
 
   if (loading) {
-    return <div className="text-center p-8">Äang táº£i bÃ i Ä‘Ã¡nh giÃ¡...</div>;
+    return <div className="text-center p-8">Đang tải bài đánh giá...</div>;
   }
-  
+
+  if (error) {
+    return <div className="text-center p-8 text-red-500">{error}</div>;
+  }
+
   if (!assessment) {
-    return <div className="text-center p-8 text-red-500">Không có bài đánh giá nào cho vai trò này.</div>;
+    return <div className="text-center p-8 text-red-500">{t('assessmentScreen.noAssessment')}</div>;
   }
 
   if (!activeAttempt) {
     return (
       <div className="text-center p-8 space-y-4">
-        <p className="text-muted-foreground">Không tìm thấy phiên làm bài hợp lệ. Vui lòng quay lại bước trước để bắt đầu lại.</p>
-        <Button onClick={() => window.history.back()} className="apple-button">Quay lại</Button>
+        <p className="text-muted-foreground">
+          Không tìm thấy phiên làm bài hợp lệ. Vui lòng quay lại bước trước để bắt đầu lại.
+        </p>
+        <Button onClick={() => window.history.back()} className="apple-button">
+          Quay lại
+        </Button>
       </div>
     );
   }
+
   return (
     <motion.div
       key="assessment"
@@ -351,7 +420,6 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     >
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto p-6">
-          {/* Header */}
           <motion.div
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -361,7 +429,6 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <h2 className="text-2xl font-bold text-gray-800">
                 {t('assessmentScreen.assessmentTitle')}: {role.name}
               </h2>
-              {/* Timer Display */}
               <motion.div
                 className="flex items-center gap-2 text-lg font-semibold text-gray-800"
                 animate={{
@@ -377,121 +444,101 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                 <span>{formatTime(timeLeft)}</span>
               </motion.div>
             </div>
-            
-            {/* Progress Bar */}
+
             <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
               <motion.div
                 className="bg-gradient-to-r from-green-400 to-blue-500 h-3 rounded-full"
                 initial={{ width: 0 }}
-                animate={{
-                  width: `${((currentQuestionIndex + 1) / questions.length) * 100}%`
-                }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
+                animate={{ width: `${questions.length ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0}%` }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
               />
             </div>
             <div className="flex justify-between items-center mt-2 text-sm text-gray-600">
-              <span>CÃ¢u {currentQuestionIndex + 1}/{questions.length}</span>
+              <span>
+                Câu {currentQuestionIndex + 1}/{questions.length}
+              </span>
               <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
             </div>
           </motion.div>
 
-          {/* Question Card */}
           <motion.div
             className="bg-white rounded-3xl shadow-xl p-8"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: 'easeOut' }}
           >
-            {renderQuestion()}
+            {renderActiveQuestion()}
+
+            <div className="mt-10 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-blue-50 text-blue-600">
+                  <CheckCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-800">{t('assessmentScreen.progressLabel')}</p>
+                  <p className="text-sm text-gray-500">
+                    {activeAttempt.answeredCount}/{activeAttempt.totalQuestions} câu đã trả lời
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  className="px-6 py-3 rounded-full text-sm font-medium"
+                  onClick={() => navigateQuestion(-1)}
+                  disabled={currentQuestionIndex === 0}
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  {t('assessmentScreen.previousBtn')}
+                </Button>
+
+                {currentQuestionIndex < questions.length - 1 ? (
+                  <Button
+                    className="apple-button px-6 py-3 rounded-full text-sm font-medium"
+                    onClick={() => navigateQuestion(1)}
+                    disabled={!hasAnsweredCurrent}
+                  >
+                    {t('assessmentScreen.nextBtn')}
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                ) : (
+                  <Button
+                    className="apple-button px-6 py-3 rounded-full text-sm font-medium"
+                    onClick={() => void finishAssessment()}
+                    disabled={!hasAnsweredCurrent}
+                  >
+                    {t('assessmentScreen.finishBtn')}
+                  </Button>
+                )}
+              </div>
+            </div>
           </motion.div>
         </div>
       </div>
 
-      {/* Fixed Navigation */}
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="sticky bottom-0 bg-white shadow-lg border-t"
-      >
-        <div className="max-w-4xl mx-auto p-4 flex justify-between items-center">
-          <Button
-            onClick={() => void navigateQuestion(-1)}
-            disabled={currentQuestionIndex === 0}
-            variant="outline"
-            className="flex items-center gap-2 px-6 py-3 rounded-xl"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span>{t('assessmentScreen.previousBtn')}</span>
-          </Button>
-          
-          {currentQuestionIndex === questions.length - 1 ? (
-            <Button
-              onClick={() => void finishAssessment()}
-              disabled={!hasAnsweredCurrent}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
-                hasAnsweredCurrent 
-                  ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700' 
-                  : 'bg-gray-300'
-              }`}
-            >
-              <span>{t('assessmentScreen.finishBtn')}</span>
-              <CheckCircle className="w-5 h-5" />
-            </Button>
-          ) : (
-            <Button
-              onClick={() => void navigateQuestion(1)}
-              disabled={!hasAnsweredCurrent}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
-                hasAnsweredCurrent 
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700' 
-                  : 'bg-gray-300'
-              }`}
-            >
-              <span>{t('assessmentScreen.nextBtn')}</span>
-              <ArrowRight className="w-5 h-5" />
-            </Button>
-          )}
-        </div>
-      </motion.div>
-      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <div className="flex items-center gap-3 mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#EA3323">
-                <path d="m40-120 440-760 440 760H40Zm115.33-66.67h649.34L480-746.67l-324.67 560ZM482.78-238q14.22 0 23.72-9.62 9.5-9.61 9.5-23.83 0-14.22-9.62-23.72-9.5-14.22 0-23.72 9.62-9.62 9.5 23.83 0 14.22 9.62 23.72 9.62 9.5 23.83 9.5Zm-33.45-114H516v-216h-66.67v216ZM480-466.67Z"/>
-              </svg>
-              <AlertDialogTitle>Cáº£nh bÃ¡o Gian láº­n!</AlertDialogTitle>
-            </div>
-            <AlertDialogDescription>
-              Báº¡n Ä‘Ã£ chuyá»ƒn tab trong khi lÃ m bÃ i. BÃ i kiá»ƒm tra cá»§a báº¡n sáº½ bá»‹ há»§y náº¿u báº¡n vi pháº¡m thÃªm {3 - tabViolations} láº§n ná»¯a.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setIsAlertOpen(false)}>Quay láº¡i bÃ i lÃ m</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AnimatePresence>
+        {isAlertOpen && (
+          <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Bạn vừa rời khỏi cửa sổ làm bài</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Mỗi lần rời khỏi cửa sổ làm bài sẽ bị tính là một lần vi phạm. Tổng số lần hiện tại:{' '}
+                  <strong>{tabViolations}</strong>.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction onClick={() => setIsAlertOpen(false)}>
+                  Tôi hiểu
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };
 
 export default AssessmentScreen;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

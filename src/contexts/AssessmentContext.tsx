@@ -1,4 +1,4 @@
-﻿import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import type { Role, AssessmentResult, AssessmentAttempt } from '@/types/assessment';
 
 interface AssessmentState {

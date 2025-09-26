@@ -1,23 +1,24 @@
-﻿import type { Question, QuestionOption } from '../types/question';
+import type { Question, QuestionOption } from '../types/question';
 
 export interface SupabaseQuestionOptionData {
   id: string;
   option_text: string;
   is_correct: boolean;
+  question_id?: string | null;
 }
 
 export interface SupabaseQuestionData {
   id: string;
   text: string;
   type?: string;
-  format: 'text' | 'multiple_choice' | 'multiple-choice';
+  format?: string | null;
   required?: boolean;
   assessment_id?: string | null;
   created_at?: string;
-  options: SupabaseQuestionOptionData[];
+  options?: SupabaseQuestionOptionData[];
 }
 
-export const MULTIPLE_CHOICE_FORMATS = new Set(['multiple_choice', 'multiple-choice']);
+export const MULTIPLE_CHOICE_FORMATS = new Set(['multiple_choice', 'multiple-choice', 'single']);
 
 export const normaliseQuestionFormat = (format?: string | null): Question['format'] => {
   if (!format) {
@@ -25,6 +26,10 @@ export const normaliseQuestionFormat = (format?: string | null): Question['forma
   }
 
   if (format === 'multiple-choice') {
+    return 'multiple_choice';
+  }
+
+  if (format === 'single') {
     return 'multiple_choice';
   }
 

@@ -18,9 +18,10 @@ export default {
 			}
 		},
 		extend: {
-			fontFamily: {
-				'inter': ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-			},
+                        fontFamily: {
+                                sans: ['Inter', 'Roboto', 'Noto Sans', 'sans-serif'],
+                                inter: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                        },
 			backgroundImage: {
 				'gradient-primary': 'var(--gradient-primary)',
 				'gradient-subtle': 'var(--gradient-subtle)',

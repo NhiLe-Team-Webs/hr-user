@@ -1,12 +1,12 @@
-﻿// src/components/PreAssessmentScreen.tsx
+// src/components/PreAssessmentScreen.tsx
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { Clock, ListChecks } from 'lucide-react';
 import { Button } from './ui/button';
 import { useToast } from './ui/use-toast';
 import { useLanguage } from '../hooks/useLanguage';
-import { Clock, ListChecks } from 'lucide-react';
 import { getAssessment, ensureProfile, startAssessmentAttempt } from '../lib/api';
-import { Role, Assessment } from '../types/assessment';
+import type { Role, Assessment } from '../types/assessment';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 
@@ -67,17 +67,7 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
         totalQuestions: assessment.questions.length,
       });
 
-      setActiveAttempt({
-        id: attempt.id,
-        status: attempt.status,
-        answeredCount: attempt.answeredCount,
-        totalQuestions: attempt.totalQuestions,
-        progressPercent: attempt.progressPercent,
-        startedAt: attempt.startedAt,
-        submittedAt: attempt.submittedAt,
-        completedAt: attempt.completedAt,
-        lastActivityAt: attempt.lastActivityAt,
-      });
+      setActiveAttempt(attempt);
 
       onStartAssessment(assessment);
     } catch (attemptError) {

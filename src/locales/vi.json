@@ -85,7 +85,8 @@
     "noAssessment": "Vị trí này hiện tại không có bài đánh giá.",
     "typeYourAnswer": "Nhập câu trả lời của bạn tại đây...",
     "selectYourAnswer": "Chọn câu trả lời của bạn",
-    "errorLoading": "Lỗi tải bài đánh giá. Vui lòng thử lại sau."
+    "errorLoading": "Lỗi tải bài đánh giá. Vui lòng thử lại sau.",
+    "noOptions": "Không có đáp án."
   },
   "preAssessmentScreen": {
     "title": "Bạn đã sẵn sàng cho bài kiểm tra chưa?",
@@ -100,13 +101,21 @@
   "resultScreen": {
     "title": "Cảm ơn bạn đã hoàn thành!",
     "subtitle": "Đây là tóm tắt nhanh về điểm mạnh của bạn.",
-    "strengthsTitle": "Top 3 điểm mạnh nổi bật:",
+    "strengthsTitle": "Điểm mạnh nổi bật",
+    "weaknessesTitle": "Điểm cần cải thiện",
+    "noStrengths": "Chưa ghi nhận điểm mạnh nào.",
+    "noWeaknesses": "Không có điểm yếu đáng kể được phát hiện.",
     "nextStepsTitle": "Bước Tiếp Theo",
-    "successText": "Kết quả của bạn thật ấn tượng! Bước tiếp theo, chúng tôi mời bạn lên lịch phỏng vấn trực tiếp với đội ngũ.",
-    "successCta": "Lên Lịch Phỏng Vấn",
-    "tryoutText": "Bạn đã thể hiện tiềm năng rất lớn. Để hiểu rõ hơn về kỹ năng thực tế của bạn, chúng tôi mời bạn tham gia Chương Trình Thử Việc/Tình Nguyện.",
-    "tryoutCta": "Tiếp Tục Đến Chương Trình Thử Việc",
-    "thankyou": "Cảm ơn bạn đã hoàn thành!",
+    "overallScore": "Điểm tổng quan",
+    "adjustedScore": "Điểm sau điều chỉnh",
+    "adjustedScoreNotice": "Điểm ban đầu {base} đã được điều chỉnh còn {adjusted} sau khi xem xét các vi phạm.",
+    "cheatingCount": "Số lần vi phạm",
+    "cheatingWarning": "Hệ thống phát hiện {count} lần rời khỏi bài làm. Điểm đã được điều chỉnh để phản ánh mức độ tin cậy của bài làm.",
+    "completedQuestions": "Số câu hoàn thành",
+    "skillScoresTitle": "Điểm năng lực theo kỹ năng",
+    "analysisSummaryTitle": "Tổng kết từ AI",
+    "resultNotice": "Kết quả đã được gửi về HR, vui lòng theo dõi email hoặc quay lại trang web để nhận kết quả.",
+    "scheduleInterviewCta": "Lên lịch phỏng vấn",
     "missingTitle": "Chúng tôi chưa thể tìm thấy kết quả mới nhất của bạn.",
     "missingDescription": "Vui lòng hoàn thành bài đánh giá trước hoặc làm mới trang này khi kết quả của bạn đã sẵn sàng.",
     "backToSelection": "Quay lại lựa chọn vai trò"

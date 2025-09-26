@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
@@ -9,10 +9,10 @@ import ResultScreen from './ResultScreen';
 import TryoutScreen from './TryoutScreen';
 import NotFound from '../pages/NotFound';
 import PreAssessmentScreen from './PreAssessmentScreen';
-import type { AssessmentResult } from '@/types/assessment';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
+import { getCandidateProgress } from '@/lib/api';
 import ErrorPage from '../pages/ErrorPage';
 
 const FullScreenLoader = () => (
@@ -36,10 +36,55 @@ const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
 
 const Router = () => {
   const location = useLocation();
-  const { status } = useAuth();
-  const { isHydrated } = useAssessment();
+  const { status, user } = useAuth();
+  const {
+    isHydrated,
+    activeAttempt,
+    assessmentResult,
+    setActiveAttempt,
+    setAssessmentResult,
+  } = useAssessment();
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  if (status !== 'ready' || !isHydrated) {
+  useEffect(() => {
+    if (status !== 'ready' || !isHydrated) {
+      return;
+    }
+
+    if (!user) {
+      setActiveAttempt(null);
+      setAssessmentResult(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSyncing(true);
+
+    getCandidateProgress(user.id)
+      .then(({ attempt, result }) => {
+        if (cancelled) {
+          return;
+        }
+        setActiveAttempt(attempt);
+        setAssessmentResult(result);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error('Failed to synchronise assessment state:', error);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsSyncing(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isHydrated, setActiveAttempt, setAssessmentResult, status, user]);
+
+  if (status !== 'ready' || !isHydrated || isSyncing) {
     return <FullScreenLoader />;
   }
 
@@ -94,12 +139,29 @@ const Router = () => {
   );
 };
 
+const useDefaultPath = () => {
+  const { assessmentResult, activeAttempt } = useAssessment();
+
+  return useMemo(() => {
+    if (assessmentResult) {
+      return '/result';
+    }
+
+    if (activeAttempt && activeAttempt.status !== 'completed' && activeAttempt.status !== 'awaiting_ai') {
+      return '/assessment';
+    }
+
+    return '/role-selection';
+  }, [assessmentResult, activeAttempt]);
+};
+
 const LandingRoute = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const defaultPath = useDefaultPath();
 
   if (user) {
-    return <Navigate to="/result" replace />;
+    return <Navigate to={defaultPath} replace />;
   }
 
   return (
@@ -113,9 +175,10 @@ const LandingRoute = () => {
 
 const LoginRoute = () => {
   const { user } = useAuth();
+  const defaultPath = useDefaultPath();
 
   if (user) {
-    return <Navigate to="/result" replace />;
+    return <Navigate to={defaultPath} replace />;
   }
 
   return <LoginScreen />;
@@ -123,11 +186,13 @@ const LoginRoute = () => {
 
 const RoleSelectionRoute = () => {
   const navigate = useNavigate();
-  const { setSelectedRole } = useAssessment();
+  const { setSelectedRole, setAssessmentResult, setActiveAttempt } = useAssessment();
 
   return (
     <RoleSelectionScreen
       onRoleSelect={(role) => {
+        setAssessmentResult(null);
+        setActiveAttempt(null);
         setSelectedRole(role);
         navigate('/pre-assessment');
       }}
@@ -155,27 +220,24 @@ const PreAssessmentRoute = () => {
 
 const AssessmentRoute = () => {
   const navigate = useNavigate();
-  const { selectedRole, setAssessmentResult } = useAssessment();
-  const { t } = useLanguage();
+  const { selectedRole, activeAttempt, assessmentResult } = useAssessment();
 
   if (!selectedRole) {
     return <Navigate to="/role-selection" replace />;
   }
 
-  const fallbackResult: AssessmentResult = {
-    score: 80,
-    strengths: [
-      t('strengths.strength1'),
-      t('strengths.strength3'),
-      t('strengths.strength5'),
-    ],
-  };
+  if (assessmentResult) {
+    return <Navigate to="/result" replace />;
+  }
+
+  if (!activeAttempt || (activeAttempt.status !== 'in_progress' && activeAttempt.status !== 'not_started')) {
+    return <Navigate to="/pre-assessment" replace />;
+  }
 
   return (
     <AssessmentScreen
       role={selectedRole}
       onFinish={() => {
-        setAssessmentResult(fallbackResult);
         navigate('/result');
       }}
     />
@@ -184,7 +246,7 @@ const AssessmentRoute = () => {
 
 const ResultRoute = () => {
   const navigate = useNavigate();
-  const { assessmentResult } = useAssessment();
+  const { assessmentResult, activeAttempt } = useAssessment();
   const { t } = useLanguage();
 
   if (!assessmentResult) {
@@ -194,7 +256,11 @@ const ResultRoute = () => {
         description={t('resultScreen.missingDescription')}
         ctaLabel={t('resultScreen.backToSelection')}
         onRetry={() => {
-          navigate('/role-selection');
+          if (activeAttempt && activeAttempt.status === 'in_progress') {
+            navigate('/assessment');
+          } else {
+            navigate('/role-selection');
+          }
         }}
       />
     );
@@ -203,23 +269,19 @@ const ResultRoute = () => {
   return (
     <ResultScreen
       result={assessmentResult}
-      onTryoutClick={() => {
+      onScheduleInterview={() => {
         navigate('/tryout');
       }}
     />
   );
 };
 
-const TryoutRoute = () => {
-  return (
-    <TryoutScreen
-      onStartTask={() => {
-        console.log('Starting a tryout task...');
-      }}
-    />
-  );
-};
+const TryoutRoute = () => (
+  <TryoutScreen
+    onStartTask={() => {
+      console.log('Starting a tryout task...');
+    }}
+  />
+);
 
 export default Router;
-
-

@@ -1,20 +1,6 @@
 // src/types/assessment.ts
 
-export interface Question {
-  id: string;
-  text: string;
-  type: string;
-  format: 'text' | 'multiple_choice';
-  required: boolean;
-  points: number;
-  options?: Option[];
-  correctAnswer?: string;
-}
-
-export interface Option {
-  id: string;
-  text: string;
-}
+import type { Question } from './question';
 
 export type AnswerValue = string | number;
 
@@ -23,12 +9,9 @@ export type UserAnswers = Record<number, AnswerValue>;
 export interface Assessment {
   id: string;
   title: string;
-  description: string;
+  description: string | null;
   duration: number;
-  questions: {
-    question_id: string;
-    order: number;
-  }[];
+  questions: Question[];
 }
 
 export interface Role {
@@ -37,14 +20,22 @@ export interface Role {
 }
 
 export interface AssessmentResult {
-  score: number;
+  attemptId: string;
+  overallScore: number | null;
+  adjustedScore: number;
   strengths: string[];
+  weaknesses: string[];
+  summary: string | null;
+  aiSummary: string | null;
+  skillScores?: Record<string, number>;
+  completedCount: number;
+  cheatingCount: number;
 }
-
-
 
 export interface AssessmentAttempt {
   id: string;
+  assessmentId?: string | null;
+  role?: string | null;
   status: string;
   answeredCount: number;
   totalQuestions: number;
@@ -53,4 +44,5 @@ export interface AssessmentAttempt {
   submittedAt?: string | null;
   completedAt?: string | null;
   lastActivityAt?: string | null;
+  cheatingCount: number;
 }
