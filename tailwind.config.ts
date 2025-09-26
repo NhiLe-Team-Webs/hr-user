@@ -17,10 +17,10 @@ export default {
 				'2xl': '1400px'
 			}
 		},
-		extend: {
-			fontFamily: {
-				'inter': ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-			},
+                extend: {
+                        fontFamily: {
+                                sans: ['Inter', 'Roboto', 'Noto Sans', 'sans-serif'],
+                        },
 			backgroundImage: {
 				'gradient-primary': 'var(--gradient-primary)',
 				'gradient-subtle': 'var(--gradient-subtle)',

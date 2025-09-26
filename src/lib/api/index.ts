@@ -1,4 +1,4 @@
-﻿export * from './types';
+export * from './types';
 
 export { getLandingPageData, updateLandingPageData } from './landingPage';
 export { getRoles, createRole, deleteRole } from './roles';
@@ -12,4 +12,8 @@ export {
   ensureProfile,
   startAssessmentAttempt,
   submitAssessmentAttempt,
+  completeAssessmentAttempt,
+  getAnswersByAttempt,
+  getLatestAttemptForProfile,
 } from './assessments';
+export { upsertAssessmentResult, getResultByAttempt } from './results';

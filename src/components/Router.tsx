@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
+import { getLatestAttemptForProfile, getResultByAttempt, getAnswersByAttempt } from '@/lib/api';
 
 const FullScreenLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -155,27 +156,16 @@ const PreAssessmentRoute = () => {
 
 const AssessmentRoute = () => {
   const navigate = useNavigate();
-  const { selectedRole, setAssessmentResult } = useAssessment();
-  const { t } = useLanguage();
+  const { selectedRole } = useAssessment();
 
   if (!selectedRole) {
     return <Navigate to="/role-selection" replace />;
   }
 
-  const fallbackResult: AssessmentResult = {
-    score: 80,
-    strengths: [
-      t('strengths.strength1'),
-      t('strengths.strength3'),
-      t('strengths.strength5'),
-    ],
-  };
-
   return (
     <AssessmentScreen
       role={selectedRole}
       onFinish={() => {
-        setAssessmentResult(fallbackResult);
         navigate('/result');
       }}
     />
@@ -184,14 +174,92 @@ const AssessmentRoute = () => {
 
 const ResultRoute = () => {
   const navigate = useNavigate();
-  const { assessmentResult } = useAssessment();
+  const { user } = useAuth();
   const { t } = useLanguage();
+  const { setAssessmentResult } = useAssessment();
+  const [state, setState] = useState<{ loading: boolean; error: string | null; result: AssessmentResult | null }>({
+    loading: true,
+    error: null,
+    result: null,
+  });
 
-  if (!assessmentResult) {
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadResult = async () => {
+      if (!user) {
+        return;
+      }
+
+      try {
+        setState((prev) => ({ ...prev, loading: true, error: null }));
+        const attempt = await getLatestAttemptForProfile(user.id);
+
+        if (!attempt) {
+          if (!isMounted) {
+            return;
+          }
+          setState({ loading: false, error: t('resultScreen.missingDescription'), result: null });
+          return;
+        }
+
+        const [answers, storedResult] = await Promise.all([
+          getAnswersByAttempt(attempt.id),
+          getResultByAttempt(attempt.id),
+        ]);
+
+        const completedCount = answers.length;
+        const cheatingCount = attempt.cheatingCount ?? 0;
+
+        const resolvedResult: AssessmentResult = storedResult
+          ? {
+              ...storedResult,
+              completedCount: storedResult.completedCount || completedCount,
+              cheatingCount: storedResult.cheatingCount ?? cheatingCount,
+            }
+          : {
+              overallScore: null,
+              adjustedScore: null,
+              strengths: [],
+              weaknesses: [],
+              summary: '',
+              completedCount,
+              cheatingCount,
+              skillScores: undefined,
+              rawSummary: null,
+            };
+
+        if (!isMounted) {
+          return;
+        }
+
+        setAssessmentResult(resolvedResult);
+        setState({ loading: false, error: null, result: resolvedResult });
+      } catch (error) {
+        console.error('Failed to load result data:', error);
+        if (!isMounted) {
+          return;
+        }
+        setState({ loading: false, error: t('resultScreen.errorLoading'), result: null });
+      }
+    };
+
+    void loadResult();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [setAssessmentResult, t, user]);
+
+  if (state.loading) {
+    return <FullScreenLoader />;
+  }
+
+  if (state.error || !state.result) {
     return (
       <ErrorPage
         title={t('resultScreen.missingTitle')}
-        description={t('resultScreen.missingDescription')}
+        description={state.error ?? t('resultScreen.missingDescription')}
         ctaLabel={t('resultScreen.backToSelection')}
         onRetry={() => {
           navigate('/role-selection');
@@ -202,8 +270,8 @@ const ResultRoute = () => {
 
   return (
     <ResultScreen
-      result={assessmentResult}
-      onTryoutClick={() => {
+      result={state.result}
+      onScheduleInterview={() => {
         navigate('/tryout');
       }}
     />
@@ -221,5 +289,3 @@ const TryoutRoute = () => {
 };
 
 export default Router;
-
-

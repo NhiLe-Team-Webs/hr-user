@@ -1,34 +1,47 @@
-﻿import type { Question, QuestionOption } from '../types/question';
+import type { Question } from '@/types/assessment';
+import type { QuestionOption } from '../../types/question';
 
 export interface SupabaseQuestionOptionData {
   id: string;
   option_text: string;
   is_correct: boolean;
+  question_id?: string;
 }
 
 export interface SupabaseQuestionData {
   id: string;
   text: string;
   type?: string;
-  format: 'text' | 'multiple_choice' | 'multiple-choice';
+  format: string;
   required?: boolean;
   assessment_id?: string | null;
   created_at?: string;
-  options: SupabaseQuestionOptionData[];
+  options?: SupabaseQuestionOptionData[];
 }
 
-export const MULTIPLE_CHOICE_FORMATS = new Set(['multiple_choice', 'multiple-choice']);
+export const MULTIPLE_CHOICE_FORMATS = new Set(['multiple_choice', 'multiple-choice', 'mcq']);
+const ESSAY_FORMATS = new Set(['essay', 'long_form', 'long-form']);
 
 export const normaliseQuestionFormat = (format?: string | null): Question['format'] => {
   if (!format) {
     return 'text';
   }
 
-  if (format === 'multiple-choice') {
+  const cleaned = format.trim().toLowerCase().replace(/-/g, '_');
+
+  if (MULTIPLE_CHOICE_FORMATS.has(cleaned)) {
     return 'multiple_choice';
   }
 
-  return format as Question['format'];
+  if (ESSAY_FORMATS.has(cleaned)) {
+    return 'essay';
+  }
+
+  if (cleaned === 'text_area' || cleaned === 'paragraph') {
+    return 'text';
+  }
+
+  return cleaned as Question['format'];
 };
 
 export const mapSupabaseQuestion = (question: SupabaseQuestionData): Question => {

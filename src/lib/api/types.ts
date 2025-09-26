@@ -1,4 +1,4 @@
-﻿import type { Question } from '../types/question';
+import type { Question } from '../../types/question';
 import type { AssessmentAttempt } from '@/types/assessment';
 
 export interface ProfileUpdates {
@@ -27,6 +27,7 @@ export interface CandidateInfo {
 export interface AnswerRow {
   id: string;
   result_id: string | null;
+  attempt_id: string | null;
   question_id: string;
   user_answer_text: string | null;
   selected_option_id: string | null;
@@ -35,7 +36,7 @@ export interface AnswerRow {
 
 export interface AnswerInput {
   id?: string;
-  attemptId?: string | null;
+  attemptId: string;
   resultId?: string | null;
   questionId: string;
   userAnswerText?: string | null;
@@ -55,6 +56,7 @@ export interface AssessmentAttemptRow {
   submitted_at: string | null;
   completed_at: string | null;
   last_activity_at: string | null;
+  cheating_count: number | null;
 }
 
 export type QuestionsByRole = Record<string, Question[]>;

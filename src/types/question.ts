@@ -15,6 +15,7 @@ export const QUESTION_FORMATS = [
   'text',
   'multiple_choice',
   'single',
+  'essay',
 ] as const;
 
 export type QuestionFormat =
