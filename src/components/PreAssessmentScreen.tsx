@@ -5,17 +5,17 @@ import { Button } from './ui/button';
 import { useLanguage } from '../hooks/useLanguage';
 import { Clock, ListChecks } from 'lucide-react';
 import { getAssessment } from '../lib/api';
-import { Role, Assessment } from '../types/assessment';
+import { Role, AssessmentDetails } from '../types/assessment';
 
 interface PreAssessmentScreenProps {
   role: Role;
   onStartAssessment: () => void;
-  initialAssessment?: Assessment | null;
+  initialAssessment?: AssessmentDetails | null;
 }
 
 const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStartAssessment, initialAssessment }) => {
   const { t } = useLanguage();
-  const [assessment, setAssessment] = useState<Assessment | null>(initialAssessment ?? null);
+  const [assessment, setAssessment] = useState<AssessmentDetails | null>(initialAssessment ?? null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

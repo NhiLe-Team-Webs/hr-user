@@ -1,32 +1,23 @@
 import { supabase } from '../supabaseClient';
-import type { Question } from '../types/question';
+import type { Question as SupabaseQuestion } from '../types/question';
 import type {
   AssessmentAttempt,
+  AssessmentDetails,
   AssessmentHistoryEntry,
   AssessmentLifecycleStatus,
   AssessmentResult,
   AttemptReview,
   Role,
 } from '@/types/assessment';
-import {
-  mapSupabaseQuestion,
-  normaliseQuestionFormat,
-  type SupabaseQuestionData,
-} from './questionMappers';
+import { mapSupabaseQuestion, normaliseQuestionFormat, type SupabaseQuestionData } from './questionMappers';
 import type { AnswerInput, AnswerRow, AssessmentAttemptRow, ResultRow } from './types';
 
-interface AssessmentPayload {
+interface SupabaseAssessmentRow {
   id: string;
   title: string;
   description: string | null;
-  duration: number | null;
-  questions: Array<{
-    id: string;
-    text: string;
-    format: string;
-    required?: boolean;
-    options: Array<{ id: string; option_text: string; is_correct: boolean }>;
-  }>;
+  duration: number | string | null;
+  target_role?: string | null;
 }
 
 const HR_NOTIFICATION_MESSAGE =
@@ -38,6 +29,13 @@ const toNumber = (value: unknown, fallback = 0): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+
+const toNullableNumber = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const escapeForILike = (value: string) => value.replace(/[\\%_]/g, '\\$&');
 
 const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => ({
   id: row.id,
@@ -116,59 +114,107 @@ const resolveLifecycleStatus = (
   }
 };
 
-export const getAssessment = async (role: string) => {
-  const { data, error } = await supabase
-    .from('assessments')
-    .select(
-      `
-        id,
-        title,
-        description,
-        duration,
-        questions:questions(
-          id,
-          text,
-          format,
-          required,
-          options:question_options(id, option_text, is_correct)
-        )
-      `,
-    )
-    .eq('target_role', role)
-    .single();
+export const getAssessment = async (role: string): Promise<AssessmentDetails | null> => {
+  const trimmedRole = role.trim();
+
+  if (!trimmedRole) {
+    return null;
+  }
+
+  const baseQuery = () =>
+    supabase
+      .from('assessments')
+      .select('id, title, description, duration, target_role')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+  let assessmentRow: SupabaseAssessmentRow | null = null;
+
+  const { data, error } = await baseQuery().eq('target_role', trimmedRole).maybeSingle();
 
   if (error) {
     console.error(`Failed to load assessment for role ${role}:`, error);
     throw new Error('Khong the tai bai danh gia.');
   }
 
-  if (!data) {
+  assessmentRow = (data as SupabaseAssessmentRow | null) ?? null;
+
+  if (!assessmentRow) {
+    const { data: caseInsensitiveData, error: caseInsensitiveError } = await baseQuery()
+      .ilike('target_role', trimmedRole)
+      .maybeSingle();
+
+    if (caseInsensitiveError) {
+      console.warn('Fallback case-insensitive assessment lookup failed:', caseInsensitiveError);
+    } else {
+      assessmentRow = (caseInsensitiveData as SupabaseAssessmentRow | null) ?? null;
+    }
+  }
+
+  if (!assessmentRow && trimmedRole) {
+    const pattern = `%${escapeForILike(trimmedRole)}%`;
+    const { data: fuzzyData, error: fuzzyError } = await baseQuery().ilike('target_role', pattern).maybeSingle();
+
+    if (fuzzyError) {
+      console.warn('Fuzzy assessment lookup failed:', fuzzyError);
+    } else {
+      assessmentRow = (fuzzyData as SupabaseAssessmentRow | null) ?? null;
+    }
+  }
+
+  if (!assessmentRow) {
     return null;
   }
 
-  const payload = data as AssessmentPayload;
+  const { id } = assessmentRow;
+
+  const { data: questionData, error: questionError } = await supabase
+    .from('questions')
+    .select(
+      `
+        id,
+        text,
+        format,
+        required,
+        assessment_id,
+        created_at,
+        question_options (id, option_text, is_correct)
+      `,
+    )
+    .eq('assessment_id', id)
+    .order('created_at', { ascending: true });
+
+  if (questionError) {
+    console.error('Failed to load questions for assessment:', questionError);
+    throw new Error('Khong the tai danh sach cau hoi.');
+  }
+
+  const questionRows = (questionData as SupabaseQuestionData[] | null) ?? [];
+
+  const questions = questionRows.map((question) => ({
+    id: question.id,
+    text: question.text,
+    type: 'General',
+    format: normaliseQuestionFormat(question.format),
+    required: question.required ?? true,
+    points: 0,
+    options: question.options?.map((option) => ({
+      id: option.id,
+      text: option.option_text,
+    })),
+    correctAnswer: question.options?.find((option) => option.is_correct)?.id,
+  }));
 
   return {
-    ...payload,
-    questions: payload.questions.map((question) => ({
-      id: question.id,
-      text: question.text,
-      type: 'General',
-      format: normaliseQuestionFormat(question.format),
-      required: question.required ?? true,
-      points: 0,
-      options: question.options.map((option) => ({
-        id: option.id,
-        text: option.option_text,
-        optionText: option.option_text,
-        isCorrect: option.is_correct,
-      })),
-      correctAnswer: question.options.find((option) => option.is_correct)?.id,
-    })),
+    id,
+    title: assessmentRow.title,
+    description: assessmentRow.description ?? null,
+    duration: toNullableNumber(assessmentRow.duration),
+    questions,
   };
 };
 
-export const getQuestionsByIds = async (questionIds: string[]): Promise<Question[]> => {
+export const getQuestionsByIds = async (questionIds: string[]): Promise<SupabaseQuestion[]> => {
   if (questionIds.length === 0) {
     return [];
   }

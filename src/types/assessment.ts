@@ -20,15 +20,12 @@ export type AnswerValue = string | number;
 
 export type UserAnswers = Record<number, AnswerValue>;
 
-export interface Assessment {
+export interface AssessmentDetails {
   id: string;
   title: string;
-  description: string;
-  duration: number;
-  questions: {
-    question_id: string;
-    order: number;
-  }[];
+  description: string | null;
+  duration: number | null;
+  questions: Question[];
 }
 
 export interface Role {

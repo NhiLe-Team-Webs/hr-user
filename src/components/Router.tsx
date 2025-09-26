@@ -10,7 +10,7 @@ import TryoutScreen from './TryoutScreen';
 import NotFound from '../pages/NotFound';
 import PreAssessmentScreen from './PreAssessmentScreen';
 import ReviewAttemptScreen from './ReviewAttemptScreen';
-import type { Assessment, AssessmentHistoryEntry } from '@/types/assessment';
+import type { AssessmentDetails, AssessmentHistoryEntry } from '@/types/assessment';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
@@ -240,7 +240,7 @@ const RoleSelectionRoute = () => {
 const PreAssessmentRoute = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const initialAssessment = (location.state as { assessment?: Assessment } | null)?.assessment ?? null;
+  const initialAssessment = (location.state as { assessment?: AssessmentDetails } | null)?.assessment ?? null;
   const { selectedRole, assessmentStatus, assessmentResult, activeAttempt } = useAssessment();
 
   if (!selectedRole) {

@@ -11,7 +11,15 @@ import {
   submitAssessmentAttempt,
   completeAssessmentAttempt,
 } from '../lib/api';
-import { Role, UserAnswers, Question, AnswerValue, AssessmentResult, AssessmentAttempt } from '../types/assessment';
+import {
+  Role,
+  UserAnswers,
+  Question,
+  AnswerValue,
+  AssessmentResult,
+  AssessmentAttempt,
+  AssessmentDetails,
+} from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,12 +39,8 @@ interface AssessmentCompletePayload {
   attempt: AssessmentAttempt | null;
 }
 
-type LoadedAssessment = {
-  id: string;
-  title: string;
-  description: string | null;
+type LoadedAssessment = Omit<AssessmentDetails, 'duration'> & {
   duration: number;
-  questions: Question[];
 };
 
 interface AssessmentScreenProps {
@@ -368,32 +372,22 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     const fetchData = async () => {
       try {
         const assessmentData = await getAssessment(role.name);
+
         if (!assessmentData) {
-          throw new Error('No assessment data returned');
+          setAssessment(null);
+          setQuestions([]);
+          setError(t('assessmentScreen.noAssessment'));
+          return;
         }
 
-        const formattedQuestions: Question[] = (assessmentData.questions ?? []).map((q: any) => {
-          const formattedQuestion: Question = {
-            id: q.id,
-            text: q.text,
-            type: q.type,
-            format: q.format,
-            required: q.required,
-            points: q.points ?? 0,
-          };
+        setError(null);
 
-          if (q.format === 'multiple_choice' && q.options) {
-            formattedQuestion.options = q.options.map((opt: any) => ({
-              id: opt.id,
-              text: opt.option_text,
-            }));
-            formattedQuestion.correctAnswer = q.options.find((opt: any) => opt.is_correct)?.id;
-          }
+        const resolvedQuestions: Question[] = (assessmentData.questions ?? []).map((question) => ({
+          ...question,
+          options: question.options?.map((option) => ({ ...option })),
+        }));
 
-          return formattedQuestion;
-        });
-
-        setQuestions(formattedQuestions);
+        setQuestions(resolvedQuestions);
 
         if (activeAttempt) {
           try {
@@ -402,7 +396,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               const restoredAnswers: UserAnswers = {};
               const restoredRecords: Record<string, { id: string; value: string }> = {};
               const questionIndexById = new Map<string, number>(
-                formattedQuestions.map((question, index) => [question.id, index]),
+                resolvedQuestions.map((question, index) => [question.id, index]),
               );
 
               persistedAnswers.forEach((answer) => {
@@ -411,7 +405,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                   return;
                 }
 
-                const question = formattedQuestions[questionIndex];
+                const question = resolvedQuestions[questionIndex];
 
                 if (question.format === 'multiple_choice' && answer.selected_option_id) {
                   const optionIndex = question.options?.findIndex(
@@ -431,43 +425,50 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                 setAnswerRecords((prev) => ({ ...prev, ...restoredRecords }));
               }
 
-              if (Object.keys(restoredAnswers).length > 0) {
-                setUserAnswers((prev) => ({ ...prev, ...restoredAnswers }));
-                const firstIncompleteIndex = formattedQuestions.findIndex((_, index) => {
-                  const value = restoredAnswers[index];
-                  if (typeof value === 'number') {
-                    return false;
-                  }
-                  if (typeof value === 'string') {
-                    return value.trim().length === 0;
-                  }
-                  return true;
-                });
+                if (Object.keys(restoredAnswers).length > 0) {
+                  setUserAnswers((prev) => ({ ...prev, ...restoredAnswers }));
+                  const firstIncompleteIndex = resolvedQuestions.findIndex((_, index) => {
+                    const value = restoredAnswers[index];
+                    if (typeof value === 'number') {
+                      return false;
+                    }
+                    if (typeof value === 'string') {
+                      return value.trim().length === 0;
+                    }
+                    return true;
+                  });
 
-                if (firstIncompleteIndex >= 0) {
-                  setCurrentQuestionIndex(firstIncompleteIndex);
+                  if (firstIncompleteIndex >= 0) {
+                    setCurrentQuestionIndex(firstIncompleteIndex);
+                  }
                 }
-              }
             }
           } catch (answerError) {
             console.error('Failed to restore answers for attempt:', answerError);
           }
         }
 
-        if (formattedQuestions.length === 0) {
+        if (resolvedQuestions.length === 0) {
           setError(t('assessmentScreen.noQuestions'));
         }
+
+        const normalisedDuration =
+          typeof assessmentData.duration === 'number' && Number.isFinite(assessmentData.duration)
+            ? assessmentData.duration
+            : 0;
 
         setAssessment({
           id: assessmentData.id,
           title: assessmentData.title,
           description: assessmentData.description ?? null,
-          duration: assessmentData.duration ?? 0,
-          questions: formattedQuestions,
+          duration: normalisedDuration,
+          questions: resolvedQuestions,
         });
 
-        setTimeLeft(assessmentData.duration ?? 0);
+        setTimeLeft(normalisedDuration);
       } catch (err) {
+        setAssessment(null);
+        setQuestions([]);
         setError(t('assessmentScreen.errorFetching'));
         console.error('Error fetching assessment data:', err);
       } finally {
