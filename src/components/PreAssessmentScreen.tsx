@@ -67,17 +67,7 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
         totalQuestions: assessment.questions.length,
       });
 
-      setActiveAttempt({
-        id: attempt.id,
-        status: attempt.status,
-        answeredCount: attempt.answeredCount,
-        totalQuestions: attempt.totalQuestions,
-        progressPercent: attempt.progressPercent,
-        startedAt: attempt.startedAt,
-        submittedAt: attempt.submittedAt,
-        completedAt: attempt.completedAt,
-        lastActivityAt: attempt.lastActivityAt,
-      });
+      setActiveAttempt(attempt);
 
       onStartAssessment(assessment);
     } catch (attemptError) {

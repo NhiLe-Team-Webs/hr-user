@@ -203,6 +203,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
         role: role.name,
         questions,
         cheatingCount: tabViolations,
+        profileId: updatedAttempt.profileId,
       });
 
       setAssessmentResult(analysis);

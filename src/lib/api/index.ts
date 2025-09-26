@@ -15,5 +15,6 @@ export {
   completeAssessmentAttempt,
   getAnswersByAttempt,
   getLatestAttemptForProfile,
+  getAssessmentAttemptById,
 } from './assessments';
 export { upsertAssessmentResult, getResultByAttempt } from './results';

@@ -18,6 +18,9 @@ interface AssessmentRow {
 
 const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => ({
   id: row.id,
+  profileId: row.profile_id,
+  assessmentId: row.assessment_id,
+  role: row.role,
   status: row.status,
   answeredCount: row.answered_count ?? 0,
   totalQuestions: row.total_questions ?? 0,
@@ -47,7 +50,7 @@ const fetchAssessmentRow = async (role: string): Promise<AssessmentRow | null> =
 const fetchAssessmentQuestions = async (assessmentId: string): Promise<SupabaseQuestionData[]> => {
   const { data, error } = await supabase
     .from('questions')
-    .select('id, text, type, format, required, assessment_id, created_at')
+    .select('id, text, format, required, assessment_id, created_at')
     .eq('assessment_id', assessmentId)
     .order('created_at', { ascending: true });
 
@@ -115,7 +118,6 @@ export const getAssessment = async (role: string): Promise<Assessment | null> =>
   const mappedQuestions = attachOptionsToQuestions(questions, options).map((question) => ({
     ...question,
     format: normaliseQuestionFormat(question.format),
-    points: question.points ?? 0,
   }));
 
   return {
@@ -227,6 +229,25 @@ export const getLatestAttemptForProfile = async (
   if (error) {
     console.error('Failed to fetch latest attempt for profile:', error);
     throw new Error('Không thể tải phiên làm bài gần nhất.');
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return mapAssessmentAttempt(data as AssessmentAttemptRow);
+};
+
+export const getAssessmentAttemptById = async (attemptId: string): Promise<AssessmentAttempt | null> => {
+  const { data, error } = await supabase
+    .from('assessment_attempts')
+    .select('*')
+    .eq('id', attemptId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Failed to fetch assessment attempt by id:', error);
+    throw new Error('Không thể tải thông tin bài đánh giá.');
   }
 
   if (!data) {
@@ -357,6 +378,7 @@ export const submitAssessmentAttempt = async (payload: {
 export const completeAssessmentAttempt = async (
   attemptId: string,
   answeredCount: number,
+  aiSummary?: Record<string, unknown> | null,
 ): Promise<AssessmentAttempt> => {
   const nowIso = new Date().toISOString();
   const { data, error } = await supabase
@@ -366,6 +388,8 @@ export const completeAssessmentAttempt = async (
       completed_at: nowIso,
       last_activity_at: nowIso,
       answered_count: answeredCount,
+      ai_status: 'completed',
+      ai_summary: aiSummary ?? null,
     })
     .eq('id', attemptId)
     .select()

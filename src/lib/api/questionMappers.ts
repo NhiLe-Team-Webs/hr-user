@@ -44,6 +44,22 @@ export const normaliseQuestionFormat = (format?: string | null): Question['forma
   return cleaned as Question['format'];
 };
 
+const deriveQuestionType = (providedType: string | undefined, format: Question['format']): Question['type'] => {
+  if (providedType && providedType.trim().length > 0) {
+    return providedType as Question['type'];
+  }
+
+  if (format === 'multiple_choice') {
+    return 'multiple_choice';
+  }
+
+  if (format === 'essay') {
+    return 'text';
+  }
+
+  return format as Question['type'];
+};
+
 export const mapSupabaseQuestion = (question: SupabaseQuestionData): Question => {
   const format = normaliseQuestionFormat(question.format);
   const options: QuestionOption[] | undefined = question.options?.map((option) => ({
@@ -58,7 +74,7 @@ export const mapSupabaseQuestion = (question: SupabaseQuestionData): Question =>
   return {
     id: question.id,
     text: question.text,
-    type: question.type ?? 'General',
+    type: deriveQuestionType(question.type, format),
     format,
     required: question.required ?? true,
     assessmentId: question.assessment_id,

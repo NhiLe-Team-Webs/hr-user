@@ -9,6 +9,7 @@ interface AnalyzeWithGeminiParams {
   role: string;
   questions: Question[];
   cheatingCount: number;
+  profileId: string;
 }
 
 interface GeminiAnalysisResponse {
@@ -73,6 +74,7 @@ export const analyzeWithGemini = async ({
   role,
   questions,
   cheatingCount,
+  profileId,
 }: AnalyzeWithGeminiParams): Promise<AssessmentResult> => {
   const answers = await getAnswersByAttempt(attemptId);
   const questionLookup = new Map(questions.map((question) => [question.id, question]));
@@ -181,8 +183,12 @@ export const analyzeWithGemini = async ({
     adjusted_score: adjustedScore,
   } as Record<string, unknown>;
 
+  if (!profileId) {
+    throw new Error('Assessment attempt is missing profile information.');
+  }
+
   const result = await upsertAssessmentResult({
-    attemptId,
+    userId: profileId,
     assessmentId,
     overallScore,
     adjustedScore,
@@ -190,9 +196,10 @@ export const analyzeWithGemini = async ({
     weaknesses: toArray(analysis.weaknesses),
     summary: analysis.summary ?? baseSummary.summary ?? '',
     aiSummary,
+    skillScores: normalizedSkillScores ?? undefined,
   });
 
-  await completeAssessmentAttempt(attemptId, completedCount);
+  await completeAssessmentAttempt(attemptId, completedCount, aiSummary);
 
   return {
     ...result,
