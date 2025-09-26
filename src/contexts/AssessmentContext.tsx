@@ -1,4 +1,12 @@
-﻿import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type PropsWithChildren,
+} from 'react';
 import type { Role, AssessmentResult, AssessmentAttempt } from '@/types/assessment';
 
 interface AssessmentState {
@@ -60,30 +68,30 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
     }
   }, [state, isHydrated]);
 
-  const setSelectedRole = (role: Role | null) => {
+  const setSelectedRole = useCallback((role: Role | null) => {
     setState((prev) => ({
       ...prev,
       selectedRole: role,
       assessmentResult: role ? prev.assessmentResult : null,
       activeAttempt: role ? prev.activeAttempt : null,
     }));
-  };
+  }, []);
 
-  const setAssessmentResult = (result: AssessmentResult | null) => {
+  const setAssessmentResult = useCallback((result: AssessmentResult | null) => {
     setState((prev) => ({
       ...prev,
       assessmentResult: result,
     }));
-  };
+  }, []);
 
-  const setActiveAttempt = (attempt: AssessmentAttempt | null) => {
+  const setActiveAttempt = useCallback((attempt: AssessmentAttempt | null) => {
     setState((prev) => ({
       ...prev,
       activeAttempt: attempt,
     }));
-  };
+  }, []);
 
-  const updateActiveAttempt = (update: Partial<AssessmentAttempt>) => {
+  const updateActiveAttempt = useCallback((update: Partial<AssessmentAttempt>) => {
     setState((prev) => {
       if (!prev.activeAttempt) {
         return prev;
@@ -96,11 +104,11 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
         },
       };
     });
-  };
+  }, []);
 
-  const resetAssessment = () => {
+  const resetAssessment = useCallback(() => {
     setState(initialState);
-  };
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -112,7 +120,15 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
       updateActiveAttempt,
       resetAssessment,
     }),
-    [state, isHydrated],
+    [
+      state,
+      isHydrated,
+      setSelectedRole,
+      setAssessmentResult,
+      setActiveAttempt,
+      updateActiveAttempt,
+      resetAssessment,
+    ],
   );
 
   return <AssessmentContext.Provider value={value}>{children}</AssessmentContext.Provider>;
