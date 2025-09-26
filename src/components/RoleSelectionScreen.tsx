@@ -7,7 +7,7 @@ import { getRoles } from '../lib/api'; // Import API getRoles
 import { useToast } from './ui/use-toast';
 
 interface RoleSelectionScreenProps {
-  onRoleSelect: (role: { name: string; title: string }) => void;
+  onRoleSelect: (role: { name: string; title: string }) => Promise<void> | void;
 }
 
 const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect }) => {
@@ -16,6 +16,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
   const [roles, setRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [processingRole, setProcessingRole] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchRoles = async () => {
@@ -82,19 +83,46 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
         {t('roleSelectionScreen.subtitle')}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {roles.map(roleName => (
-          <div
-            key={roleName}
-            onClick={() => onRoleSelect({ name: roleName, title: roleName })}
-            className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
-          >
-            {roleIcons[roleName as keyof typeof roleIcons] || <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />}
-            <h3 className="text-xl font-bold mb-2">{roleName}</h3>
-            <p className="text-muted-foreground text-sm">
-              {/* Đây là nơi bạn có thể thêm mô tả động nếu cần */}
-            </p>
-          </div>
-        ))}
+        {roles.map((roleName) => {
+          const isProcessing = processingRole === roleName;
+
+          return (
+            <div
+              key={roleName}
+              onClick={async () => {
+                if (isProcessing) {
+                  return;
+                }
+
+                setProcessingRole(roleName);
+                try {
+                  await Promise.resolve(onRoleSelect({ name: roleName, title: roleName }));
+                } catch (err) {
+                  console.error('Failed to select role:', err);
+                  toast({
+                    title: 'Đã xảy ra lỗi',
+                    description: 'Không thể khởi tạo bài đánh giá cho vai trò này.',
+                    variant: 'destructive',
+                  });
+                } finally {
+                  setProcessingRole(null);
+                }
+              }}
+              className={`p-6 text-center bg-muted/50 rounded-2xl transition-all transform hover:-translate-y-1 ${
+                isProcessing ? 'ring-2 ring-primary pointer-events-none opacity-80' : 'hover:ring-2 ring-primary cursor-pointer'
+              }`}
+            >
+              {roleIcons[roleName as keyof typeof roleIcons] || <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />}
+              <h3 className="text-xl font-bold mb-2">{roleName}</h3>
+              <p className="text-muted-foreground text-sm">
+                {/* Đây là nơi bạn có thể thêm mô tả động nếu cần */}
+              </p>
+              {isProcessing ? (
+                <p className="text-xs text-muted-foreground mt-3">Đang chuẩn bị bài đánh giá...</p>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </motion.div>
   );

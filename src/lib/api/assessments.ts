@@ -5,6 +5,7 @@ import type {
   AssessmentHistoryEntry,
   AssessmentLifecycleStatus,
   AssessmentResult,
+  AttemptReview,
   Role,
 } from '@/types/assessment';
 import {
@@ -52,6 +53,9 @@ const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => (
   lastActivityAt: row.last_activity_at,
   createdAt: row.created_at ?? null,
   durationSeconds: row.duration_seconds ?? null,
+  aiStatus: row.ai_status ?? null,
+  aiSummary: (row.ai_summary as Record<string, unknown> | null) ?? null,
+  cheatingCount: row.cheating_count ?? null,
 });
 
 const normaliseStringArray = (value: unknown): string[] => {
@@ -194,12 +198,17 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
 };
 
 export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => {
-  const base = {
+  const base: Record<string, unknown> = {
+    attempt_id: payload.attemptId ?? null,
     result_id: payload.resultId ?? null,
     question_id: payload.questionId,
     user_answer_text: payload.userAnswerText ?? null,
     selected_option_id: payload.selectedOptionId ?? null,
   };
+
+  if (typeof payload.timeSpentSeconds === 'number') {
+    base.time_spent_seconds = payload.timeSpentSeconds;
+  }
 
   if (payload.id) {
     const { data, error } = await supabase
@@ -229,6 +238,21 @@ export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => 
   }
 
   return data as AnswerRow;
+};
+
+export const getAnswersForAttempt = async (attemptId: string): Promise<AnswerRow[]> => {
+  const { data, error } = await supabase
+    .from('answers')
+    .select('*')
+    .eq('attempt_id', attemptId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Failed to fetch answers for attempt:', error);
+    throw new Error('Khong the tai cau tra loi da luu.');
+  }
+
+  return (data as AnswerRow[] | null) ?? [];
 };
 
 interface ProfileRow {
@@ -333,17 +357,30 @@ export const startAssessmentAttempt = async (payload: {
   return mapAssessmentAttempt(data as AssessmentAttemptRow);
 };
 
-export const submitAssessmentAttempt = async (attemptId: string): Promise<AssessmentAttempt> => {
+export const submitAssessmentAttempt = async (payload: {
+  attemptId: string;
+  answeredCount: number;
+  totalQuestions: number;
+  cheatingCount?: number;
+}): Promise<AssessmentAttempt> => {
   const nowIso = new Date().toISOString();
+  const progressPercent = payload.totalQuestions
+    ? Math.min(100, Math.round((payload.answeredCount / payload.totalQuestions) * 100))
+    : 100;
+
   const { data, error } = await supabase
     .from('assessment_attempts')
     .update({
       status: 'awaiting_ai',
+      ai_status: 'processing',
+      answered_count: payload.answeredCount,
+      total_questions: payload.totalQuestions,
+      progress_percent: progressPercent,
+      cheating_count: payload.cheatingCount ?? null,
       submitted_at: nowIso,
       last_activity_at: nowIso,
-      progress_percent: 100,
     })
-    .eq('id', attemptId)
+    .eq('id', payload.attemptId)
     .select()
     .single();
 
@@ -388,114 +425,129 @@ export const getAssessmentSnapshot = async (profileId: string): Promise<Assessme
   }
 
   const resultRows = (resultData as ResultRow[] | null) ?? [];
-  const resultsByAssessment = new Map<string | null, ResultRow[]>();
+  const resultsById = new Map<string, ResultRow>();
 
-  for (const row of resultRows) {
-    const key = row.assessment_id ?? STORAGE_NULL_KEY;
-    const bucket = resultsByAssessment.get(key) ?? [];
-    bucket.push(row);
-    resultsByAssessment.set(key, bucket);
+  for (const result of resultRows) {
+    resultsById.set(result.id, result);
   }
 
   const history: AssessmentHistoryEntry[] = attemptRows.map((row) => {
-    const bucket = resultsByAssessment.get(row.assessment_id ?? STORAGE_NULL_KEY);
-    const latestResult = bucket?.[0];
+    const aiSummary = (row.ai_summary as Record<string, unknown> | null) ?? null;
+    const resultId = typeof aiSummary?.result_id === 'string' ? (aiSummary.result_id as string) : null;
+    const referencedResult = resultId ? resultsById.get(resultId) ?? null : null;
+    const fallbackResult = referencedResult
+      ? referencedResult
+      : resultRows.find((candidate) => candidate.assessment_id === row.assessment_id) ?? null;
 
     return {
       id: row.id,
-      role: row.role,
+      role: row.role ?? 'Chưa xác định',
       assessmentId: row.assessment_id,
       status: row.status,
       startedAt: row.started_at,
       submittedAt: row.submitted_at,
       completedAt: row.completed_at,
-      overallScore: latestResult ? Math.round(toNumber(latestResult.overall_score, 0)) : null,
+      overallScore: fallbackResult ? Math.round(toNumber(fallbackResult.overall_score, 0)) : null,
       createdAt: row.created_at ?? row.started_at ?? null,
+      answeredCount: row.answered_count ?? null,
+      totalQuestions: row.total_questions ?? null,
+      cheatingCount: row.cheating_count ?? null,
     };
   });
 
-  const latestAttemptRow = attemptRows[0] ?? null;
-  const latestAttempt = latestAttemptRow ? mapAssessmentAttempt(latestAttemptRow) : null;
+  const activeAttemptRow = attemptRows.find((row) => row.status !== 'completed') ?? null;
+  const activeAttempt = activeAttemptRow ? mapAssessmentAttempt(activeAttemptRow) : null;
 
-  const latestResultRow = latestAttemptRow
-    ? resultsByAssessment.get(latestAttemptRow.assessment_id ?? STORAGE_NULL_KEY)?.[0] ?? resultRows[0] ?? null
-    : resultRows[0] ?? null;
+  const completedAttemptRows = attemptRows.filter((row) => row.status === 'completed');
+  const latestCompletedAttemptRow = completedAttemptRows[0] ?? null;
 
-  const assessmentResult = latestResultRow ? mapAssessmentResult(latestResultRow) : null;
-
-  const status = resolveLifecycleStatus(latestAttemptRow?.status, Boolean(assessmentResult));
-
-  const selectedRole: Role | null = latestAttempt?.role
-    ? { name: latestAttempt.role, title: latestAttempt.role }
-    : assessmentResult?.recommendedRoles?.[0]
-    ? {
-        name: assessmentResult.recommendedRoles[0],
-        title: assessmentResult.recommendedRoles[0],
-      }
+  const selectedRole: Role | null = activeAttempt?.role
+    ? { name: activeAttempt.role, title: activeAttempt.role }
+    : latestCompletedAttemptRow?.role
+    ? { name: latestCompletedAttemptRow.role, title: latestCompletedAttemptRow.role }
     : null;
+
+  let assessmentResultRow: ResultRow | null = null;
+
+  if (latestCompletedAttemptRow) {
+    const aiSummary = (latestCompletedAttemptRow.ai_summary as Record<string, unknown> | null) ?? null;
+    const resultId = typeof aiSummary?.result_id === 'string' ? (aiSummary.result_id as string) : null;
+    if (resultId) {
+      assessmentResultRow = resultsById.get(resultId) ?? null;
+    }
+
+    if (!assessmentResultRow && latestCompletedAttemptRow.assessment_id) {
+      assessmentResultRow =
+        resultRows.find(
+          (row) =>
+            row.assessment_id === latestCompletedAttemptRow.assessment_id &&
+            (!latestCompletedAttemptRow.completed_at || row.completed_at === latestCompletedAttemptRow.completed_at),
+        ) ?? null;
+    }
+  }
+
+  if (!assessmentResultRow) {
+    assessmentResultRow = resultRows[0] ?? null;
+  }
+
+  const assessmentResult = assessmentResultRow ? mapAssessmentResult(assessmentResultRow) : null;
+  const status = resolveLifecycleStatus(activeAttempt?.status, Boolean(assessmentResult));
 
   return {
     selectedRole,
-    activeAttempt: status === 'completed' ? null : latestAttempt,
+    activeAttempt: status === 'completed' ? null : activeAttempt,
     assessmentResult,
     history,
     status,
   };
 };
 
-export const finalizeAssessmentAttempt = async (payload: {
+export const completeAssessmentAttempt = async (payload: {
   attemptId: string;
   profileId: string;
   assessmentId?: string | null;
   result: AssessmentResult;
+  answeredCount: number;
+  totalQuestions: number;
+  durationSeconds?: number | null;
+  cheatingCount?: number | null;
+  answerIds?: string[];
 }): Promise<{ attempt: AssessmentAttempt; result: AssessmentResult }> => {
   const nowIso = payload.result.completedAt ?? new Date().toISOString();
-
-  const updates: Record<string, unknown> = {
-    status: 'completed',
-    completed_at: nowIso,
-    last_activity_at: nowIso,
-    progress_percent: 100,
-  };
-
-  if (payload.result.metrics?.durationSeconds != null) {
-    updates.duration_seconds = payload.result.metrics.durationSeconds;
-  }
-
-  const { data: attemptData, error: attemptError } = await supabase
-    .from('assessment_attempts')
-    .update(updates)
-    .eq('id', payload.attemptId)
-    .select()
-    .single();
-
-  if (attemptError) {
-    console.error('Failed to finalise assessment attempt:', attemptError);
-    throw new Error('Khong the cap nhat trang thai bai danh gia.');
-  }
+  const progressPercent = payload.totalQuestions
+    ? Math.min(100, Math.round((payload.answeredCount / payload.totalQuestions) * 100))
+    : 100;
 
   const resultInsert: Record<string, unknown> = {
     user_id: payload.profileId,
+    assessment_id: payload.assessmentId ?? null,
     completed_at: nowIso,
     overall_score: payload.result.score,
     strengths: payload.result.strengths,
     weaknesses: payload.result.weaknesses,
     summary: payload.result.summary ?? null,
     recommended_roles: payload.result.recommendedRoles ?? null,
-    ai_summary: payload.result.aiSummary ?? null,
-    analysis_model: payload.result.analysisModel ?? 'gemini-local',
+    ai_summary: payload.result.aiSummary ?? payload.result.summary ?? null,
+    analysis_model: payload.result.analysisModel ?? 'gemini-pro',
     analysis_version: payload.result.analysisVersion ?? 'v1',
+    analysis_completed_at: nowIso,
     insight_locale: 'vi-VN',
     insight_version: 'v1',
   };
 
-  if (payload.assessmentId) {
-    resultInsert.assessment_id = payload.assessmentId;
+  if (payload.result.metrics?.durationSeconds != null) {
+    resultInsert.time_analysis = {
+      durationSeconds: payload.result.metrics.durationSeconds,
+    };
+  }
+
+  if (payload.cheatingCount != null) {
+    resultInsert.cheating_summary = { cheatingCount: payload.cheatingCount };
   }
 
   const { data: resultData, error: resultError } = await supabase
     .from('results')
-    .upsert(resultInsert, { onConflict: 'user_id,assessment_id' })
+    .insert(resultInsert)
     .select()
     .single();
 
@@ -504,8 +556,160 @@ export const finalizeAssessmentAttempt = async (payload: {
     throw new Error('Khong the luu ket qua danh gia.');
   }
 
+  const resultRow = resultData as ResultRow;
+
+  const answerIds = payload.answerIds ?? [];
+
+  if (answerIds.length > 0) {
+    const { error: answerUpdateError } = await supabase
+      .from('answers')
+      .update({ result_id: resultRow.id })
+      .in('id', answerIds);
+
+    if (answerUpdateError) {
+      console.warn('Failed to attach answers to result by ids:', answerUpdateError);
+    }
+  } else {
+    const { error: answerUpdateError } = await supabase
+      .from('answers')
+      .update({ result_id: resultRow.id })
+      .eq('attempt_id', payload.attemptId);
+
+    if (answerUpdateError) {
+      console.warn('Failed to attach answers to result by attempt id:', answerUpdateError);
+    }
+  }
+
+  const attemptUpdates: Record<string, unknown> = {
+    status: 'completed',
+    ai_status: 'completed',
+    submitted_at: payload.result.completedAt ?? nowIso,
+    completed_at: nowIso,
+    last_activity_at: nowIso,
+    answered_count: payload.answeredCount,
+    total_questions: payload.totalQuestions,
+    progress_percent: progressPercent,
+    duration_seconds: payload.durationSeconds ?? null,
+    cheating_count: payload.cheatingCount ?? null,
+    ai_summary: {
+      overall_score: payload.result.score,
+      summary: payload.result.summary ?? null,
+      strengths: payload.result.strengths,
+      weaknesses: payload.result.weaknesses,
+      result_id: resultRow.id,
+    },
+  };
+
+  const { data: attemptData, error: attemptError } = await supabase
+    .from('assessment_attempts')
+    .update(attemptUpdates)
+    .eq('id', payload.attemptId)
+    .select()
+    .single();
+
+  if (attemptError) {
+    console.error('Failed to mark assessment attempt as completed:', attemptError);
+    throw new Error('Khong the cap nhat trang thai bai danh gia.');
+  }
+
   return {
     attempt: mapAssessmentAttempt(attemptData as AssessmentAttemptRow),
-    result: mapAssessmentResult(resultData as ResultRow),
+    result: mapAssessmentResult(resultRow),
+  };
+};
+
+export const getAttemptReview = async (attemptId: string): Promise<AttemptReview | null> => {
+  const { data: attemptData, error: attemptError } = await supabase
+    .from('assessment_attempts')
+    .select('*')
+    .eq('id', attemptId)
+    .maybeSingle();
+
+  if (attemptError) {
+    console.error('Failed to load attempt for review:', attemptError);
+    throw new Error('Khong the tai bai danh gia.');
+  }
+
+  if (!attemptData) {
+    return null;
+  }
+
+  const attemptRow = attemptData as AssessmentAttemptRow;
+  const attempt = mapAssessmentAttempt(attemptRow);
+  const aiSummary = (attemptRow.ai_summary as Record<string, unknown> | null) ?? null;
+  const resultIdFromSummary = typeof aiSummary?.result_id === 'string' ? (aiSummary.result_id as string) : null;
+
+  let resultRow: ResultRow | null = null;
+
+  if (resultIdFromSummary) {
+    const { data: resultLookup, error: resultLookupError } = await supabase
+      .from('results')
+      .select('*')
+      .eq('id', resultIdFromSummary)
+      .maybeSingle();
+
+    if (resultLookupError) {
+      console.warn('Failed to load result by id for review:', resultLookupError);
+    }
+
+    resultRow = (resultLookup as ResultRow | null) ?? null;
+  }
+
+  if (!resultRow && attemptRow.assessment_id) {
+    const { data: fallbackResult, error: fallbackError } = await supabase
+      .from('results')
+      .select('*')
+      .eq('user_id', attemptRow.profile_id)
+      .eq('assessment_id', attemptRow.assessment_id)
+      .order('completed_at', { ascending: false })
+      .maybeSingle();
+
+    if (fallbackError) {
+      console.warn('Failed to load fallback result for review:', fallbackError);
+    }
+
+    resultRow = (fallbackResult as ResultRow | null) ?? null;
+  }
+
+  let answerRows = await getAnswersForAttempt(attemptId);
+
+  if (answerRows.length === 0 && resultRow) {
+    const { data: resultAnswers, error: resultAnswersError } = await supabase
+      .from('answers')
+      .select('*')
+      .eq('result_id', resultRow.id)
+      .order('created_at', { ascending: true });
+
+    if (resultAnswersError) {
+      console.warn('Failed to load answers by result id for review:', resultAnswersError);
+    }
+
+    answerRows = (resultAnswers as AnswerRow[] | null) ?? [];
+  }
+
+  const questionIds = Array.from(new Set(answerRows.map((row) => row.question_id))).filter(Boolean);
+  const questions = questionIds.length ? await getQuestionsByIds(questionIds) : [];
+  const questionMap = new Map(questions.map((question) => [question.id, question]));
+
+  const answers = answerRows.map((row) => {
+    const question = questionMap.get(row.question_id);
+    const selectedOptionText = question?.options?.find((option) => option.id === row.selected_option_id)?.text ?? null;
+
+    return {
+      id: row.id,
+      questionId: row.question_id,
+      questionText: question?.text ?? 'Câu hỏi đã được cập nhật',
+      format: (question?.format as Question['format']) ?? 'text',
+      options: question?.options,
+      selectedOptionId: row.selected_option_id,
+      selectedOptionText,
+      userAnswerText: row.user_answer_text,
+    };
+  });
+
+  return {
+    attempt,
+    result: resultRow ? mapAssessmentResult(resultRow) : null,
+    answers,
   };
 };

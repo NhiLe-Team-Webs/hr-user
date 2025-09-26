@@ -43,7 +43,7 @@ export interface AssessmentMetrics {
   answeredQuestions: number;
   correctAnswers: number;
   durationSeconds?: number;
-  tabViolations?: number;
+  cheatingCount?: number;
 }
 
 export interface AssessmentResult {
@@ -75,6 +75,9 @@ export interface AssessmentAttempt {
   lastActivityAt?: string | null;
   createdAt?: string | null;
   durationSeconds?: number | null;
+  aiStatus?: string | null;
+  aiSummary?: Record<string, unknown> | null;
+  cheatingCount?: number | null;
 }
 
 export interface AssessmentHistoryEntry {
@@ -87,4 +90,24 @@ export interface AssessmentHistoryEntry {
   completedAt?: string | null;
   overallScore?: number | null;
   createdAt?: string | null;
+  answeredCount?: number | null;
+  totalQuestions?: number | null;
+  cheatingCount?: number | null;
+}
+
+export interface AttemptAnswerReview {
+  id: string;
+  questionId: string;
+  questionText: string;
+  format: Question['format'];
+  options?: Option[];
+  selectedOptionId?: string | null;
+  selectedOptionText?: string | null;
+  userAnswerText?: string | null;
+}
+
+export interface AttemptReview {
+  attempt: AssessmentAttempt;
+  result: AssessmentResult | null;
+  answers: AttemptAnswerReview[];
 }

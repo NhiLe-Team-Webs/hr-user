@@ -1,5 +1,5 @@
-import React from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
 import LoginScreen from './LoginScreen';
@@ -9,12 +9,15 @@ import ResultScreen from './ResultScreen';
 import TryoutScreen from './TryoutScreen';
 import NotFound from '../pages/NotFound';
 import PreAssessmentScreen from './PreAssessmentScreen';
-import type { AssessmentAttempt } from '@/types/assessment';
+import ReviewAttemptScreen from './ReviewAttemptScreen';
+import type { Assessment, AssessmentHistoryEntry } from '@/types/assessment';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
-import { finalizeAssessmentAttempt } from '@/lib/api';
+import { ensureProfile, getAssessment, getAttemptReview, startAssessmentAttempt } from '@/lib/api';
+import { useToast } from './ui/use-toast';
+import type { AttemptReview } from '@/types/assessment';
 
 const FullScreenLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -89,6 +92,14 @@ const Router = () => {
             </ProtectedRoute>
           )}
         />
+        <Route
+          path="/attempts/:attemptId/review"
+          element={(
+            <ProtectedRoute>
+              <ReviewAttemptRoute />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AnimatePresence>
@@ -98,19 +109,15 @@ const Router = () => {
 const LandingRoute = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { assessmentStatus, activeAttempt, assessmentResult, selectedRole } = useAssessment();
+  const { assessmentStatus, activeAttempt, assessmentResult } = useAssessment();
 
   if (user) {
     if (assessmentStatus === 'completed' && assessmentResult) {
       return <Navigate to="/result" replace />;
     }
 
-    if (assessmentStatus === 'awaiting_ai' || (activeAttempt && assessmentStatus !== 'idle')) {
+    if (activeAttempt && assessmentStatus !== 'idle') {
       return <Navigate to="/assessment" replace />;
-    }
-
-    if (selectedRole) {
-      return <Navigate to="/pre-assessment" replace />;
     }
 
     return <Navigate to="/role-selection" replace />;
@@ -127,19 +134,15 @@ const LandingRoute = () => {
 
 const LoginRoute = () => {
   const { user } = useAuth();
-  const { assessmentStatus, assessmentResult, activeAttempt, selectedRole } = useAssessment();
+  const { assessmentStatus, assessmentResult, activeAttempt } = useAssessment();
 
   if (user) {
     if (assessmentStatus === 'completed' && assessmentResult) {
       return <Navigate to="/result" replace />;
     }
 
-    if (assessmentStatus === 'awaiting_ai' || (activeAttempt && assessmentStatus !== 'idle')) {
+    if (activeAttempt && assessmentStatus !== 'idle') {
       return <Navigate to="/assessment" replace />;
-    }
-
-    if (selectedRole) {
-      return <Navigate to="/pre-assessment" replace />;
     }
 
     return <Navigate to="/role-selection" replace />;
@@ -150,7 +153,18 @@ const LoginRoute = () => {
 
 const RoleSelectionRoute = () => {
   const navigate = useNavigate();
-  const { setSelectedRole, assessmentStatus, assessmentResult, activeAttempt } = useAssessment();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const {
+    setSelectedRole,
+    assessmentStatus,
+    assessmentResult,
+    activeAttempt,
+    setActiveAttempt,
+    setAssessmentResult,
+    setAssessmentStatus,
+    appendAttemptHistory,
+  } = useAssessment();
 
   if (assessmentStatus === 'completed' && assessmentResult) {
     return <Navigate to="/result" replace />;
@@ -162,9 +176,62 @@ const RoleSelectionRoute = () => {
 
   return (
     <RoleSelectionScreen
-      onRoleSelect={(role) => {
+      onRoleSelect={async (role) => {
         setSelectedRole(role);
-        navigate('/pre-assessment');
+
+        if (!user) {
+          navigate('/login');
+          return;
+        }
+
+        try {
+          await ensureProfile({
+            id: user.id,
+            email: user.email ?? null,
+            name: (user.user_metadata?.full_name as string | undefined) ?? user.email ?? null,
+          });
+
+          const assessmentData = await getAssessment(role.name);
+          if (!assessmentData) {
+            throw new Error('Assessment data is unavailable');
+          }
+
+          const attempt = await startAssessmentAttempt({
+            profileId: user.id,
+            assessmentId: assessmentData.id,
+            role: role.name,
+            totalQuestions: assessmentData.questions.length,
+          });
+
+          setActiveAttempt(attempt);
+          setAssessmentStatus('in_progress');
+          setAssessmentResult(null);
+          appendAttemptHistory({
+            id: attempt.id,
+            role: attempt.role ?? role.name,
+            assessmentId: attempt.assessmentId ?? null,
+            status: attempt.status,
+            startedAt: attempt.startedAt,
+            submittedAt: attempt.submittedAt,
+            completedAt: attempt.completedAt,
+            overallScore: null,
+            createdAt: attempt.createdAt ?? attempt.startedAt ?? null,
+            answeredCount: attempt.answeredCount,
+            totalQuestions: attempt.totalQuestions,
+            cheatingCount: attempt.cheatingCount ?? null,
+          });
+
+          navigate('/pre-assessment', { state: { assessment: assessmentData } });
+        } catch (error) {
+          console.error('Failed to start assessment attempt:', error);
+          setSelectedRole(null);
+          setAssessmentStatus('idle');
+          toast({
+            title: 'Không thể bắt đầu bài đánh giá',
+            description: 'Vui lòng thử lại sau.',
+            variant: 'destructive',
+          });
+        }
       }}
     />
   );
@@ -172,6 +239,8 @@ const RoleSelectionRoute = () => {
 
 const PreAssessmentRoute = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const initialAssessment = (location.state as { assessment?: Assessment } | null)?.assessment ?? null;
   const { selectedRole, assessmentStatus, assessmentResult, activeAttempt } = useAssessment();
 
   if (!selectedRole) {
@@ -182,13 +251,14 @@ const PreAssessmentRoute = () => {
     return <Navigate to="/result" replace />;
   }
 
-  if (activeAttempt && assessmentStatus !== 'completed') {
-    return <Navigate to="/assessment" replace />;
+  if (!activeAttempt) {
+    return <Navigate to="/role-selection" replace />;
   }
 
   return (
     <PreAssessmentScreen
       role={selectedRole}
+      initialAssessment={initialAssessment}
       onStartAssessment={() => {
         navigate('/assessment');
       }}
@@ -225,48 +295,28 @@ const AssessmentRoute = () => {
   return (
     <AssessmentScreen
       role={selectedRole}
-      onFinish={async ({ result, attempt }) => {
-        let nextResult = result;
-        let nextAttempt = attempt ?? activeAttempt;
+      onFinish={({ result, attempt }) => {
+        const finalAttempt = attempt ?? activeAttempt;
 
-        if (user && activeAttempt?.id) {
-          try {
-            const { attempt: persistedAttempt, result: persistedResult } = await finalizeAssessmentAttempt({
-              attemptId: activeAttempt.id,
-              assessmentId: activeAttempt.assessmentId ?? null,
-              profileId: user.id,
-              result,
-            });
-            nextAttempt = persistedAttempt;
-            nextResult = persistedResult;
-          } catch (error) {
-            console.error('Failed to finalise assessment attempt remotely:', error);
-          }
-        }
-
-        const completedAtIso = nextResult.completedAt ?? new Date().toISOString();
-
-        if (nextAttempt) {
-          const normalisedAttempt: AssessmentAttempt = {
-            ...nextAttempt,
-            status: 'completed',
-            completedAt: completedAtIso,
-            lastActivityAt: completedAtIso,
-          };
-          setActiveAttempt(normalisedAttempt);
+        if (finalAttempt) {
+          setActiveAttempt(finalAttempt);
           appendAttemptHistory({
-            id: normalisedAttempt.id,
-            role: normalisedAttempt.role ?? selectedRole.name,
-            assessmentId: normalisedAttempt.assessmentId ?? null,
-            status: normalisedAttempt.status,
-            startedAt: normalisedAttempt.startedAt,
-            submittedAt: normalisedAttempt.submittedAt,
-            completedAt: normalisedAttempt.completedAt,
-            overallScore: nextResult.score,
+            id: finalAttempt.id,
+            role: finalAttempt.role ?? selectedRole.name,
+            assessmentId: finalAttempt.assessmentId ?? null,
+            status: finalAttempt.status,
+            startedAt: finalAttempt.startedAt,
+            submittedAt: finalAttempt.submittedAt,
+            completedAt: finalAttempt.completedAt,
+            overallScore: result.score,
+            createdAt: finalAttempt.createdAt ?? finalAttempt.startedAt ?? null,
+            answeredCount: finalAttempt.answeredCount,
+            totalQuestions: finalAttempt.totalQuestions,
+            cheatingCount: finalAttempt.cheatingCount ?? null,
           });
         }
 
-        setAssessmentResult(nextResult);
+        setAssessmentResult(result);
         setAssessmentStatus('completed');
         navigate('/result');
       }}
@@ -276,7 +326,20 @@ const AssessmentRoute = () => {
 
 const ResultRoute = () => {
   const navigate = useNavigate();
-  const { assessmentResult, assessmentStatus, activeAttempt, attemptHistory, resetAssessment } = useAssessment();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const {
+    assessmentResult,
+    assessmentStatus,
+    activeAttempt,
+    attemptHistory,
+    resetAssessment,
+    setSelectedRole,
+    setActiveAttempt,
+    setAssessmentResult,
+    setAssessmentStatus,
+    appendAttemptHistory,
+  } = useAssessment();
   const { t } = useLanguage();
 
   if (!assessmentResult) {
@@ -296,16 +359,153 @@ const ResultRoute = () => {
     );
   }
 
+  const handleRetake = async (entry: AssessmentHistoryEntry) => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    const roleName = entry.role;
+    const role = { name: roleName, title: roleName };
+
+    try {
+      const assessmentData = await getAssessment(roleName);
+      if (!assessmentData) {
+        throw new Error('Assessment unavailable');
+      }
+
+      const attempt = await startAssessmentAttempt({
+        profileId: user.id,
+        assessmentId: assessmentData.id,
+        role: roleName,
+        totalQuestions: assessmentData.questions.length,
+      });
+
+      setSelectedRole(role);
+      setActiveAttempt(attempt);
+      setAssessmentResult(null);
+      setAssessmentStatus('in_progress');
+      appendAttemptHistory({
+        id: attempt.id,
+        role: attempt.role ?? roleName,
+        assessmentId: attempt.assessmentId ?? null,
+        status: attempt.status,
+        startedAt: attempt.startedAt,
+        submittedAt: attempt.submittedAt,
+        completedAt: attempt.completedAt,
+        overallScore: null,
+        createdAt: attempt.createdAt ?? attempt.startedAt ?? null,
+        answeredCount: attempt.answeredCount,
+        totalQuestions: attempt.totalQuestions,
+        cheatingCount: attempt.cheatingCount ?? null,
+      });
+
+      navigate('/pre-assessment', { state: { assessment: assessmentData } });
+    } catch (error) {
+      console.error('Failed to retake assessment:', error);
+      toast({
+        title: 'Không thể tạo bài làm mới',
+        description: 'Vui lòng thử lại sau.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <ResultScreen
       result={assessmentResult}
       history={attemptHistory}
+      onReviewAttempt={(attemptId) => {
+        navigate(`/attempts/${attemptId}/review`);
+      }}
+      onRetakeAttempt={handleRetake}
       onTryoutClick={() => {
         navigate('/tryout');
       }}
-      onRetake={() => {
+      onReset={() => {
         resetAssessment();
+        setAssessmentStatus('idle');
+        setAssessmentResult(null);
         navigate('/role-selection');
+      }}
+    />
+  );
+};
+
+const ReviewAttemptRoute = () => {
+  const navigate = useNavigate();
+  const { attemptId } = useParams<{ attemptId: string }>();
+  const [review, setReview] = useState<AttemptReview | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!attemptId) {
+      setError('missing');
+      setIsLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadReview = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const data = await getAttemptReview(attemptId);
+        if (isCancelled) {
+          return;
+        }
+
+        if (!data) {
+          setError('missing');
+        } else {
+          setReview(data);
+        }
+      } catch (err) {
+        console.error('Failed to load attempt review:', err);
+        if (!isCancelled) {
+          setError('failed');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadReview();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [attemptId]);
+
+  if (isLoading) {
+    return <FullScreenLoader />;
+  }
+
+  if (error || !review) {
+    return (
+      <ErrorPage
+        title="Không tìm thấy bài làm"
+        description="Chúng tôi không thể tìm thấy dữ liệu cho lần làm bài này."
+        ctaLabel="Quay lại kết quả"
+        onRetry={() => {
+          navigate('/result');
+        }}
+      />
+    );
+  }
+
+  return (
+    <ReviewAttemptScreen
+      attempt={review.attempt}
+      result={review.result}
+      answers={review.answers}
+      onBack={() => {
+        navigate('/result');
       }}
     />
   );

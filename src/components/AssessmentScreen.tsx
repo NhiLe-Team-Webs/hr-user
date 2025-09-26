@@ -4,10 +4,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
-import { getAssessment, upsertAnswer, submitAssessmentAttempt } from '../lib/api';
+import {
+  getAssessment,
+  getAnswersForAttempt,
+  upsertAnswer,
+  submitAssessmentAttempt,
+  completeAssessmentAttempt,
+} from '../lib/api';
 import { Role, UserAnswers, Question, AnswerValue, AssessmentResult, AssessmentAttempt } from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAssessment } from '@/contexts/AssessmentContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +46,7 @@ interface AssessmentScreenProps {
 
 const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) => {
   const { activeAttempt, updateActiveAttempt } = useAssessment();
+  const { user } = useAuth();
   const { t } = useLanguage();
   const [assessment, setAssessment] = useState<LoadedAssessment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -55,6 +63,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
+  const [isFinishing, setIsFinishing] = useState(false);
 
   const ensureAnswerPersisted = useCallback(
     async (questionIndex: number, overrideRawValue?: AnswerValue) => {
@@ -130,66 +139,168 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     await Promise.all(questions.map((_, index) => ensureAnswerPersisted(index)));
   }, [activeAttempt, questions, ensureAnswerPersisted]);
 
+  const computeAnsweredCount = useCallback(() => {
+    return questions.reduce((count, question, index) => {
+      const value = userAnswers[index];
+
+      if (typeof value === 'number') {
+        return count + 1;
+      }
+
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return count + 1;
+      }
+
+      return count;
+    }, 0);
+  }, [questions, userAnswers]);
+
+  useEffect(() => {
+    if (!activeAttempt || questions.length === 0) {
+      return;
+    }
+
+    const answeredCount = computeAnsweredCount();
+    const progressPercent = questions.length
+      ? Math.min(100, Math.round((answeredCount / questions.length) * 100))
+      : 0;
+
+    updateActiveAttempt({ answeredCount, progressPercent });
+  }, [activeAttempt, computeAnsweredCount, questions.length, updateActiveAttempt]);
+
+  useEffect(() => {
+    if (!activeAttempt) {
+      return;
+    }
+
+    updateActiveAttempt({ cheatingCount: tabViolations });
+  }, [activeAttempt, tabViolations, updateActiveAttempt]);
+
   const finishAssessment = useCallback(async () => {
+    if (!activeAttempt) {
+      console.warn('Attempt not found when trying to finish assessment');
+      return;
+    }
+
+    if (!user) {
+      console.warn('User must be authenticated to complete assessment');
+      return;
+    }
+
     const totalDuration = assessment?.duration ?? 0;
     const durationSpent = totalDuration > 0 ? Math.max(0, totalDuration - timeLeft) : undefined;
+    const totalQuestions = questions.length;
+
+    setIsFinishing(true);
 
     await persistAllAnswers();
 
-    let latestAttempt: AssessmentAttempt | null = activeAttempt;
-
-    if (activeAttempt) {
-      try {
-        const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
-        latestAttempt = updatedAttempt;
-        updateActiveAttempt(updatedAttempt);
-      } catch (error) {
-        console.error('Failed to submit attempt:', error);
-      }
-    }
+    const answeredCount = computeAnsweredCount();
 
     try {
-      const result = await generateAssessmentResult({
-        attemptId: activeAttempt?.id,
+      const submittedAttempt = await submitAssessmentAttempt({
+        attemptId: activeAttempt.id,
+        answeredCount,
+        totalQuestions,
+        cheatingCount: tabViolations,
+      });
+      updateActiveAttempt(submittedAttempt);
+    } catch (error) {
+      console.error('Failed to submit attempt for processing:', error);
+    }
+
+    let generatedResult: AssessmentResult;
+
+    try {
+      generatedResult = await generateAssessmentResult({
+        attemptId: activeAttempt.id,
         role,
         questions,
         answers: userAnswers,
         durationSeconds: durationSpent,
-        tabViolations,
-      });
-
-      onFinish({
-        result,
-        attempt: latestAttempt,
+        cheatingCount: tabViolations,
       });
     } catch (error) {
       console.error('Failed to generate assessment result:', error);
-      onFinish({
-        result: {
-          id: `${Date.now()}`,
-          score: 0,
-          strengths: ['Bạn đã hoàn thành đầy đủ bài đánh giá.'],
-          weaknesses: ['Hệ thống chưa thể tính toán điểm số, vui lòng thử lại sau.'],
-          summary: 'Hệ thống gặp sự cố khi tính toán điểm số của bạn.',
-          recommendedRoles: [role.name],
-          completedAt: new Date().toISOString(),
-          hrMessage:
-            'Kết quả của bạn đã được gửi về cho HR xem xét, bạn sẽ nhận được thông báo qua email hoặc trực tiếp trên giao diện.',
-          aiSummary: null,
-          metrics: {
-            totalQuestions: questions.length,
-            answeredQuestions: Object.keys(userAnswers).length,
-            correctAnswers: 0,
-            durationSeconds: durationSpent,
-            tabViolations,
-          },
-          analysisModel: 'rule-based',
-          analysisVersion: 'fallback',
+      const fallbackCompletedAt = new Date().toISOString();
+      generatedResult = {
+        id: `${Date.now()}`,
+        score: 0,
+        strengths: ['Bạn đã hoàn thành đầy đủ bài đánh giá.'],
+        weaknesses: ['Hệ thống chưa thể tính toán điểm số, vui lòng thử lại sau.'],
+        summary: 'Hệ thống gặp sự cố khi tính toán điểm số của bạn.',
+        recommendedRoles: [role.name],
+        completedAt: fallbackCompletedAt,
+        hrMessage:
+          'Kết quả của bạn đã được gửi về cho HR xem xét, bạn sẽ nhận được thông báo qua email hoặc trực tiếp trên giao diện.',
+        aiSummary: null,
+        metrics: {
+          totalQuestions,
+          answeredQuestions: answeredCount,
+          correctAnswers: 0,
+          durationSeconds: durationSpent,
+          cheatingCount: tabViolations,
         },
-        attempt: latestAttempt,
-      });
+        analysisModel: 'rule-based',
+        analysisVersion: 'fallback',
+      };
     }
-  }, [assessment, activeAttempt, onFinish, persistAllAnswers, questions, role, tabViolations, t, timeLeft, updateActiveAttempt, userAnswers]);
+
+    try {
+      const linkedAnswerIds = Object.values(answerRecords)
+        .map((record) => record.id)
+        .filter(Boolean);
+
+      const completion = await completeAssessmentAttempt({
+        attemptId: activeAttempt.id,
+        profileId: user.id,
+        assessmentId: activeAttempt.assessmentId ?? assessment?.id ?? null,
+        result: generatedResult,
+        answeredCount,
+        totalQuestions,
+        durationSeconds: durationSpent,
+        cheatingCount: tabViolations,
+        answerIds: linkedAnswerIds,
+      });
+
+      onFinish({
+        result: completion.result,
+        attempt: completion.attempt,
+      });
+    } catch (error) {
+      console.error('Failed to persist final assessment result:', error);
+      const fallbackAttempt: AssessmentAttempt = {
+        ...activeAttempt,
+        status: 'completed',
+        answeredCount,
+        totalQuestions,
+        completedAt: generatedResult.completedAt ?? new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        progressPercent: totalQuestions ? Math.min(100, Math.round((answeredCount / totalQuestions) * 100)) : 100,
+      };
+
+      onFinish({
+        result: generatedResult,
+        attempt: fallbackAttempt,
+      });
+    } finally {
+      setIsFinishing(false);
+    }
+  }, [
+    activeAttempt,
+    answerRecords,
+    assessment,
+    computeAnsweredCount,
+    onFinish,
+    persistAllAnswers,
+    questions,
+    role,
+    tabViolations,
+    timeLeft,
+    updateActiveAttempt,
+    user,
+    userAnswers,
+  ]);
 
   // Timer logic
   useEffect(() => {
@@ -284,6 +395,65 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
         setQuestions(formattedQuestions);
 
+        if (activeAttempt) {
+          try {
+            const persistedAnswers = await getAnswersForAttempt(activeAttempt.id);
+            if (persistedAnswers.length > 0) {
+              const restoredAnswers: UserAnswers = {};
+              const restoredRecords: Record<string, { id: string; value: string }> = {};
+              const questionIndexById = new Map<string, number>(
+                formattedQuestions.map((question, index) => [question.id, index]),
+              );
+
+              persistedAnswers.forEach((answer) => {
+                const questionIndex = questionIndexById.get(answer.question_id);
+                if (questionIndex == null) {
+                  return;
+                }
+
+                const question = formattedQuestions[questionIndex];
+
+                if (question.format === 'multiple_choice' && answer.selected_option_id) {
+                  const optionIndex = question.options?.findIndex(
+                    (option) => option.id === answer.selected_option_id,
+                  );
+                  if (optionIndex != null && optionIndex >= 0) {
+                    restoredAnswers[questionIndex] = optionIndex;
+                    restoredRecords[question.id] = { id: answer.id, value: answer.selected_option_id };
+                  }
+                } else if (answer.user_answer_text) {
+                  restoredAnswers[questionIndex] = answer.user_answer_text;
+                  restoredRecords[question.id] = { id: answer.id, value: answer.user_answer_text };
+                }
+              });
+
+              if (Object.keys(restoredRecords).length > 0) {
+                setAnswerRecords((prev) => ({ ...prev, ...restoredRecords }));
+              }
+
+              if (Object.keys(restoredAnswers).length > 0) {
+                setUserAnswers((prev) => ({ ...prev, ...restoredAnswers }));
+                const firstIncompleteIndex = formattedQuestions.findIndex((_, index) => {
+                  const value = restoredAnswers[index];
+                  if (typeof value === 'number') {
+                    return false;
+                  }
+                  if (typeof value === 'string') {
+                    return value.trim().length === 0;
+                  }
+                  return true;
+                });
+
+                if (firstIncompleteIndex >= 0) {
+                  setCurrentQuestionIndex(firstIncompleteIndex);
+                }
+              }
+            }
+          } catch (answerError) {
+            console.error('Failed to restore answers for attempt:', answerError);
+          }
+        }
+
         if (formattedQuestions.length === 0) {
           setError(t('assessmentScreen.noQuestions'));
         }
@@ -306,7 +476,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     };
 
     void fetchData();
-  }, [role, t]);
+  }, [activeAttempt, role, t]);
 
   // Format time as MM:SS
   const formatTime = (seconds: number) => {
@@ -459,34 +629,34 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
         <div className="max-w-4xl mx-auto p-4 flex justify-between items-center">
           <Button
             onClick={() => void navigateQuestion(-1)}
-            disabled={currentQuestionIndex === 0}
+            disabled={currentQuestionIndex === 0 || isFinishing}
             variant="outline"
             className="flex items-center gap-2 px-6 py-3 rounded-xl"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>{t('assessmentScreen.previousBtn')}</span>
           </Button>
-          
+
           {currentQuestionIndex === questions.length - 1 ? (
             <Button
               onClick={() => void finishAssessment()}
-              disabled={!hasAnsweredCurrent}
+              disabled={!hasAnsweredCurrent || isFinishing}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
-                hasAnsweredCurrent 
-                  ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700' 
+                hasAnsweredCurrent && !isFinishing
+                  ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
                   : 'bg-gray-300'
               }`}
             >
-              <span>{t('assessmentScreen.finishBtn')}</span>
+              <span>{isFinishing ? 'Đang gửi kết quả...' : t('assessmentScreen.finishBtn')}</span>
               <CheckCircle className="w-5 h-5" />
             </Button>
           ) : (
             <Button
               onClick={() => void navigateQuestion(1)}
-              disabled={!hasAnsweredCurrent}
+              disabled={!hasAnsweredCurrent || isFinishing}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
-                hasAnsweredCurrent 
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700' 
+                hasAnsweredCurrent && !isFinishing
+                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
                   : 'bg-gray-300'
               }`}
             >

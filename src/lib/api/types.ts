@@ -26,11 +26,13 @@ export interface CandidateInfo {
 
 export interface AnswerRow {
   id: string;
+  attempt_id: string | null;
   result_id: string | null;
   question_id: string;
   user_answer_text: string | null;
   selected_option_id: string | null;
   created_at: string;
+  time_spent_seconds?: number | null;
 }
 
 export interface AnswerInput {
@@ -40,6 +42,7 @@ export interface AnswerInput {
   questionId: string;
   userAnswerText?: string | null;
   selectedOptionId?: string | null;
+  timeSpentSeconds?: number | null;
 }
 
 export interface AssessmentAttemptRow {
@@ -57,6 +60,13 @@ export interface AssessmentAttemptRow {
   last_activity_at: string | null;
   created_at?: string | null;
   duration_seconds?: number | null;
+  ai_status?: string | null;
+  ai_summary?: unknown;
+  cheating_count?: number | null;
+  cheating_events?: unknown;
+  question_timings?: unknown;
+  average_seconds_per_question?: number | null;
+  last_ai_error?: string | null;
 }
 
 export interface ResultRow {

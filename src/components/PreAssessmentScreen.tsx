@@ -2,30 +2,30 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from './ui/button';
-import { useToast } from './ui/use-toast';
 import { useLanguage } from '../hooks/useLanguage';
 import { Clock, ListChecks } from 'lucide-react';
-import { getAssessment, ensureProfile, startAssessmentAttempt } from '../lib/api';
+import { getAssessment } from '../lib/api';
 import { Role, Assessment } from '../types/assessment';
-import { useAuth } from '@/contexts/AuthContext';
-import { useAssessment } from '@/contexts/AssessmentContext';
 
 interface PreAssessmentScreenProps {
   role: Role;
-  onStartAssessment: (assessment: Assessment) => void;
+  onStartAssessment: () => void;
+  initialAssessment?: Assessment | null;
 }
 
-const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStartAssessment }) => {
-  const { toast } = useToast();
-  const { user } = useAuth();
-  const { setActiveAttempt } = useAssessment();
+const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStartAssessment, initialAssessment }) => {
   const { t } = useLanguage();
-  const [assessment, setAssessment] = useState<Assessment | null>(null);
+  const [assessment, setAssessment] = useState<Assessment | null>(initialAssessment ?? null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
 
   useEffect(() => {
+    if (initialAssessment) {
+      setAssessment(initialAssessment);
+      setLoading(false);
+      return;
+    }
+
     const fetchAssessment = async () => {
       try {
         const assessmentData = await getAssessment(role.name);
@@ -44,52 +44,7 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
     if (role && role.name) {
       fetchAssessment();
     }
-  }, [role, t]);
-
-  const handleStart = async () => {
-    if (!assessment || !user) {
-      setError(t('preAssessmentScreen.errorDescription'));
-      return;
-    }
-
-    try {
-      setIsStarting(true);
-      await ensureProfile({
-        id: user.id,
-        email: user.email ?? null,
-        name: (user.user_metadata?.full_name as string | undefined) ?? user.email ?? null,
-      });
-
-      const attempt = await startAssessmentAttempt({
-        profileId: user.id,
-        assessmentId: assessment.id,
-        role: role.name,
-        totalQuestions: assessment.questions.length,
-      });
-
-      setActiveAttempt({
-        id: attempt.id,
-        status: attempt.status,
-        answeredCount: attempt.answeredCount,
-        totalQuestions: attempt.totalQuestions,
-        progressPercent: attempt.progressPercent,
-        startedAt: attempt.startedAt,
-        submittedAt: attempt.submittedAt,
-        completedAt: attempt.completedAt,
-        lastActivityAt: attempt.lastActivityAt,
-      });
-
-      onStartAssessment(assessment);
-    } catch (attemptError) {
-      console.error('Failed to start assessment attempt:', attemptError);
-      toast({
-        title: t('preAssessmentScreen.errorDescription'),
-        variant: 'destructive',
-      });
-    } finally {
-      setIsStarting(false);
-    }
-  };
+  }, [initialAssessment, role, t]);
 
   if (!role || loading) {
     return (
@@ -166,12 +121,8 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
         </div>
       </div>
 
-      <Button
-        onClick={handleStart}
-        disabled={isStarting}
-        className="apple-button text-lg px-8 py-4 w-full"
-      >
-        {isStarting ? t('preAssessmentScreen.loading') : t('preAssessmentScreen.startAssessment')}
+      <Button onClick={onStartAssessment} className="apple-button text-lg px-8 py-4 w-full">
+        {t('preAssessmentScreen.startAssessment')}
       </Button>
     </motion.div>
   );

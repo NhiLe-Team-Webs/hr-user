@@ -9,9 +9,11 @@ export {
   getAssessment,
   getQuestionsByIds,
   upsertAnswer,
+  getAnswersForAttempt,
   ensureProfile,
   startAssessmentAttempt,
   submitAssessmentAttempt,
   getAssessmentSnapshot,
-  finalizeAssessmentAttempt,
+  completeAssessmentAttempt,
+  getAttemptReview,
 } from './assessments';
