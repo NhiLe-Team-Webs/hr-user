@@ -36,15 +36,35 @@ export interface Role {
   title: string;
 }
 
-export interface AssessmentResult {
-  score: number;
-  strengths: string[];
+export type AssessmentLifecycleStatus = 'idle' | 'in_progress' | 'awaiting_ai' | 'completed';
+
+export interface AssessmentMetrics {
+  totalQuestions: number;
+  answeredQuestions: number;
+  correctAnswers: number;
+  durationSeconds?: number;
+  tabViolations?: number;
 }
 
-
+export interface AssessmentResult {
+  id: string;
+  score: number;
+  strengths: string[];
+  weaknesses: string[];
+  summary?: string | null;
+  recommendedRoles?: string[];
+  completedAt?: string | null;
+  hrMessage?: string;
+  aiSummary?: string | null;
+  metrics?: AssessmentMetrics;
+  analysisModel?: string | null;
+  analysisVersion?: string | null;
+}
 
 export interface AssessmentAttempt {
   id: string;
+  assessmentId?: string | null;
+  role?: string | null;
   status: string;
   answeredCount: number;
   totalQuestions: number;
@@ -53,4 +73,18 @@ export interface AssessmentAttempt {
   submittedAt?: string | null;
   completedAt?: string | null;
   lastActivityAt?: string | null;
+  createdAt?: string | null;
+  durationSeconds?: number | null;
+}
+
+export interface AssessmentHistoryEntry {
+  id: string;
+  role: string;
+  status: string;
+  assessmentId?: string | null;
+  startedAt?: string | null;
+  submittedAt?: string | null;
+  completedAt?: string | null;
+  overallScore?: number | null;
+  createdAt?: string | null;
 }

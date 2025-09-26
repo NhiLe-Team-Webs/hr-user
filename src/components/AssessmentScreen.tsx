@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { getAssessment, upsertAnswer, submitAssessmentAttempt } from '../lib/api';
-import { Role, UserAnswers, Question, AnswerValue } from '../types/assessment';
+import { Role, UserAnswers, Question, AnswerValue, AssessmentResult, AssessmentAttempt } from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import {
@@ -17,16 +17,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { generateAssessmentResult } from '@/lib/resultGenerator';
+
+interface AssessmentCompletePayload {
+  result: AssessmentResult;
+  attempt: AssessmentAttempt | null;
+}
+
+type LoadedAssessment = {
+  id: string;
+  title: string;
+  description: string | null;
+  duration: number;
+  questions: Question[];
+};
 
 interface AssessmentScreenProps {
   role: Role;
-  onFinish: () => void;
+  onFinish: (payload: AssessmentCompletePayload) => void;
 }
 
 const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) => {
   const { activeAttempt, updateActiveAttempt } = useAssessment();
   const { t } = useLanguage();
-  const [assessment, setAssessment] = useState(null);
+  const [assessment, setAssessment] = useState<LoadedAssessment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
@@ -117,19 +131,65 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   }, [activeAttempt, questions, ensureAnswerPersisted]);
 
   const finishAssessment = useCallback(async () => {
-    if (!activeAttempt) {
-      onFinish();
-      return;
-    }
+    const totalDuration = assessment?.duration ?? 0;
+    const durationSpent = totalDuration > 0 ? Math.max(0, totalDuration - timeLeft) : undefined;
+
     await persistAllAnswers();
-    try {
-      const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
-      updateActiveAttempt(updatedAttempt);
-    } catch (error) {
-      console.error('Failed to submit attempt:', error);
+
+    let latestAttempt: AssessmentAttempt | null = activeAttempt;
+
+    if (activeAttempt) {
+      try {
+        const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
+        latestAttempt = updatedAttempt;
+        updateActiveAttempt(updatedAttempt);
+      } catch (error) {
+        console.error('Failed to submit attempt:', error);
+      }
     }
-    onFinish();
-  }, [activeAttempt, persistAllAnswers, updateActiveAttempt, onFinish]);
+
+    try {
+      const result = await generateAssessmentResult({
+        attemptId: activeAttempt?.id,
+        role,
+        questions,
+        answers: userAnswers,
+        durationSeconds: durationSpent,
+        tabViolations,
+      });
+
+      onFinish({
+        result,
+        attempt: latestAttempt,
+      });
+    } catch (error) {
+      console.error('Failed to generate assessment result:', error);
+      onFinish({
+        result: {
+          id: `${Date.now()}`,
+          score: 0,
+          strengths: ['Bạn đã hoàn thành đầy đủ bài đánh giá.'],
+          weaknesses: ['Hệ thống chưa thể tính toán điểm số, vui lòng thử lại sau.'],
+          summary: 'Hệ thống gặp sự cố khi tính toán điểm số của bạn.',
+          recommendedRoles: [role.name],
+          completedAt: new Date().toISOString(),
+          hrMessage:
+            'Kết quả của bạn đã được gửi về cho HR xem xét, bạn sẽ nhận được thông báo qua email hoặc trực tiếp trên giao diện.',
+          aiSummary: null,
+          metrics: {
+            totalQuestions: questions.length,
+            answeredQuestions: Object.keys(userAnswers).length,
+            correctAnswers: 0,
+            durationSeconds: durationSpent,
+            tabViolations,
+          },
+          analysisModel: 'rule-based',
+          analysisVersion: 'fallback',
+        },
+        attempt: latestAttempt,
+      });
+    }
+  }, [assessment, activeAttempt, onFinish, persistAllAnswers, questions, role, tabViolations, t, timeLeft, updateActiveAttempt, userAnswers]);
 
   // Timer logic
   useEffect(() => {
@@ -194,23 +254,21 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
   // Fetch assessment data from API
   useEffect(() => {
-  const fetchData = async () => {
-    try {
-      const assessmentData = await getAssessment(role.name);
-      if (!assessmentData) {
-        throw new Error('No assessment data returned');
-      }
-      setAssessment(assessmentData);
-      setTimeLeft(assessmentData.duration);
+    const fetchData = async () => {
+      try {
+        const assessmentData = await getAssessment(role.name);
+        if (!assessmentData) {
+          throw new Error('No assessment data returned');
+        }
 
-      if (assessmentData.questions?.length > 0) {
-        const formattedQuestions: Question[] = assessmentData.questions.map((q: any) => {
+        const formattedQuestions: Question[] = (assessmentData.questions ?? []).map((q: any) => {
           const formattedQuestion: Question = {
             id: q.id,
             text: q.text,
             type: q.type,
             format: q.format,
             required: q.required,
+            points: q.points ?? 0,
           };
 
           if (q.format === 'multiple_choice' && q.options) {
@@ -223,23 +281,32 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
           return formattedQuestion;
         });
-        console.log('Formatted questions:', formattedQuestions); // Debug log
+
         setQuestions(formattedQuestions);
-      } else {
-        setQuestions([]);
-        setError(t('assessmentScreen.noQuestions'));
+
+        if (formattedQuestions.length === 0) {
+          setError(t('assessmentScreen.noQuestions'));
+        }
+
+        setAssessment({
+          id: assessmentData.id,
+          title: assessmentData.title,
+          description: assessmentData.description ?? null,
+          duration: assessmentData.duration ?? 0,
+          questions: formattedQuestions,
+        });
+
+        setTimeLeft(assessmentData.duration ?? 0);
+      } catch (err) {
+        setError(t('assessmentScreen.errorFetching'));
+        console.error('Error fetching assessment data:', err);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setError(t('assessmentScreen.errorFetching'));
-      console.error('Error fetching assessment data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  fetchData();
-}, [role, t]);
+    };
 
-
+    void fetchData();
+  }, [role, t]);
 
   // Format time as MM:SS
   const formatTime = (seconds: number) => {
@@ -247,27 +314,6 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     const secs = seconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setTabViolations(prev => prev + 1);
-        setIsAlertOpen(true);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [role]);
-
-  useEffect(() => {
-    if (tabViolations >= 3) {
-      void finishAssessment();
-    }
-  }, [tabViolations, finishAssessment]);
 
   const renderQuestion = () => {
     if (!questions || questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;

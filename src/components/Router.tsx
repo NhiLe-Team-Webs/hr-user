@@ -9,11 +9,12 @@ import ResultScreen from './ResultScreen';
 import TryoutScreen from './TryoutScreen';
 import NotFound from '../pages/NotFound';
 import PreAssessmentScreen from './PreAssessmentScreen';
-import type { AssessmentResult } from '@/types/assessment';
+import type { AssessmentAttempt } from '@/types/assessment';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
+import { finalizeAssessmentAttempt } from '@/lib/api';
 
 const FullScreenLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -97,9 +98,22 @@ const Router = () => {
 const LandingRoute = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { assessmentStatus, activeAttempt, assessmentResult, selectedRole } = useAssessment();
 
   if (user) {
-    return <Navigate to="/result" replace />;
+    if (assessmentStatus === 'completed' && assessmentResult) {
+      return <Navigate to="/result" replace />;
+    }
+
+    if (assessmentStatus === 'awaiting_ai' || (activeAttempt && assessmentStatus !== 'idle')) {
+      return <Navigate to="/assessment" replace />;
+    }
+
+    if (selectedRole) {
+      return <Navigate to="/pre-assessment" replace />;
+    }
+
+    return <Navigate to="/role-selection" replace />;
   }
 
   return (
@@ -113,9 +127,22 @@ const LandingRoute = () => {
 
 const LoginRoute = () => {
   const { user } = useAuth();
+  const { assessmentStatus, assessmentResult, activeAttempt, selectedRole } = useAssessment();
 
   if (user) {
-    return <Navigate to="/result" replace />;
+    if (assessmentStatus === 'completed' && assessmentResult) {
+      return <Navigate to="/result" replace />;
+    }
+
+    if (assessmentStatus === 'awaiting_ai' || (activeAttempt && assessmentStatus !== 'idle')) {
+      return <Navigate to="/assessment" replace />;
+    }
+
+    if (selectedRole) {
+      return <Navigate to="/pre-assessment" replace />;
+    }
+
+    return <Navigate to="/role-selection" replace />;
   }
 
   return <LoginScreen />;
@@ -123,7 +150,15 @@ const LoginRoute = () => {
 
 const RoleSelectionRoute = () => {
   const navigate = useNavigate();
-  const { setSelectedRole } = useAssessment();
+  const { setSelectedRole, assessmentStatus, assessmentResult, activeAttempt } = useAssessment();
+
+  if (assessmentStatus === 'completed' && assessmentResult) {
+    return <Navigate to="/result" replace />;
+  }
+
+  if (activeAttempt && assessmentStatus !== 'completed') {
+    return <Navigate to="/assessment" replace />;
+  }
 
   return (
     <RoleSelectionScreen
@@ -137,10 +172,18 @@ const RoleSelectionRoute = () => {
 
 const PreAssessmentRoute = () => {
   const navigate = useNavigate();
-  const { selectedRole } = useAssessment();
+  const { selectedRole, assessmentStatus, assessmentResult, activeAttempt } = useAssessment();
 
   if (!selectedRole) {
     return <Navigate to="/role-selection" replace />;
+  }
+
+  if (assessmentStatus === 'completed' && assessmentResult) {
+    return <Navigate to="/result" replace />;
+  }
+
+  if (activeAttempt && assessmentStatus !== 'completed') {
+    return <Navigate to="/assessment" replace />;
   }
 
   return (
@@ -155,27 +198,76 @@ const PreAssessmentRoute = () => {
 
 const AssessmentRoute = () => {
   const navigate = useNavigate();
-  const { selectedRole, setAssessmentResult } = useAssessment();
-  const { t } = useLanguage();
+  const { user } = useAuth();
+  const {
+    selectedRole,
+    activeAttempt,
+    assessmentResult,
+    assessmentStatus,
+    setAssessmentResult,
+    setAssessmentStatus,
+    appendAttemptHistory,
+    setActiveAttempt,
+  } = useAssessment();
 
   if (!selectedRole) {
     return <Navigate to="/role-selection" replace />;
   }
 
-  const fallbackResult: AssessmentResult = {
-    score: 80,
-    strengths: [
-      t('strengths.strength1'),
-      t('strengths.strength3'),
-      t('strengths.strength5'),
-    ],
-  };
+  if (assessmentStatus === 'completed' && assessmentResult) {
+    return <Navigate to="/result" replace />;
+  }
+
+  if (!activeAttempt) {
+    return <Navigate to="/pre-assessment" replace />;
+  }
 
   return (
     <AssessmentScreen
       role={selectedRole}
-      onFinish={() => {
-        setAssessmentResult(fallbackResult);
+      onFinish={async ({ result, attempt }) => {
+        let nextResult = result;
+        let nextAttempt = attempt ?? activeAttempt;
+
+        if (user && activeAttempt?.id) {
+          try {
+            const { attempt: persistedAttempt, result: persistedResult } = await finalizeAssessmentAttempt({
+              attemptId: activeAttempt.id,
+              assessmentId: activeAttempt.assessmentId ?? null,
+              profileId: user.id,
+              result,
+            });
+            nextAttempt = persistedAttempt;
+            nextResult = persistedResult;
+          } catch (error) {
+            console.error('Failed to finalise assessment attempt remotely:', error);
+          }
+        }
+
+        const completedAtIso = nextResult.completedAt ?? new Date().toISOString();
+
+        if (nextAttempt) {
+          const normalisedAttempt: AssessmentAttempt = {
+            ...nextAttempt,
+            status: 'completed',
+            completedAt: completedAtIso,
+            lastActivityAt: completedAtIso,
+          };
+          setActiveAttempt(normalisedAttempt);
+          appendAttemptHistory({
+            id: normalisedAttempt.id,
+            role: normalisedAttempt.role ?? selectedRole.name,
+            assessmentId: normalisedAttempt.assessmentId ?? null,
+            status: normalisedAttempt.status,
+            startedAt: normalisedAttempt.startedAt,
+            submittedAt: normalisedAttempt.submittedAt,
+            completedAt: normalisedAttempt.completedAt,
+            overallScore: nextResult.score,
+          });
+        }
+
+        setAssessmentResult(nextResult);
+        setAssessmentStatus('completed');
         navigate('/result');
       }}
     />
@@ -184,10 +276,14 @@ const AssessmentRoute = () => {
 
 const ResultRoute = () => {
   const navigate = useNavigate();
-  const { assessmentResult } = useAssessment();
+  const { assessmentResult, assessmentStatus, activeAttempt, attemptHistory, resetAssessment } = useAssessment();
   const { t } = useLanguage();
 
   if (!assessmentResult) {
+    if (assessmentStatus !== 'completed' && activeAttempt) {
+      return <Navigate to="/assessment" replace />;
+    }
+
     return (
       <ErrorPage
         title={t('resultScreen.missingTitle')}
@@ -203,8 +299,13 @@ const ResultRoute = () => {
   return (
     <ResultScreen
       result={assessmentResult}
+      history={attemptHistory}
       onTryoutClick={() => {
         navigate('/tryout');
+      }}
+      onRetake={() => {
+        resetAssessment();
+        navigate('/role-selection');
       }}
     />
   );

@@ -55,6 +55,23 @@ export interface AssessmentAttemptRow {
   submitted_at: string | null;
   completed_at: string | null;
   last_activity_at: string | null;
+  created_at?: string | null;
+  duration_seconds?: number | null;
+}
+
+export interface ResultRow {
+  id: string;
+  user_id: string;
+  assessment_id: string | null;
+  completed_at: string | null;
+  overall_score: number | null;
+  strengths: unknown;
+  weaknesses: unknown;
+  summary: string | null;
+  recommended_roles: unknown;
+  ai_summary: unknown;
+  analysis_model: string | null;
+  analysis_version: string | null;
 }
 
 export type QuestionsByRole = Record<string, Question[]>;

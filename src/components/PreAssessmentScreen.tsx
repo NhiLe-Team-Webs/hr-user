@@ -134,7 +134,7 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
     );
   }
 
-  const durationInMinutes = Math.floor(assessment.duration / 60);
+  const durationInMinutes = Math.floor((assessment.duration ?? 0) / 60);
   const numberOfQuestions = assessment.questions.length;
 
   return (

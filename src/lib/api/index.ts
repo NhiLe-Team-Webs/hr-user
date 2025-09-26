@@ -12,4 +12,6 @@ export {
   ensureProfile,
   startAssessmentAttempt,
   submitAssessmentAttempt,
+  getAssessmentSnapshot,
+  finalizeAssessmentAttempt,
 } from './assessments';
