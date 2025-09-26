@@ -7,7 +7,7 @@ import { getAssessment, upsertAnswer, submitAssessmentAttempt, getAttemptAnswerD
 import { saveAssessmentResultAnalysis } from '../lib/api';
 import { analyzeWithGemini } from '../lib/api/gemini';
 import { renderQuestion } from './assessment/renderQuestion';
-import type { Assessment, Role, UserAnswers, AnswerValue } from '../types/assessment';
+import type { Assessment, AssessmentAttempt, Role, UserAnswers, AnswerValue } from '../types/assessment';
 import type { Question } from '@/types/question';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAssessment } from '@/contexts/AssessmentContext';
@@ -162,10 +162,23 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
         assessmentTitle: assessment?.title ?? null,
       });
 
+      const attemptForAnalysis: AssessmentAttempt = {
+        ...updatedAttempt,
+        assessmentId:
+          updatedAttempt.assessmentId || activeAttempt.assessmentId || assessment?.id || '',
+        profileId: updatedAttempt.profileId || activeAttempt.profileId || user?.id || '',
+        totalQuestions:
+          updatedAttempt.totalQuestions || activeAttempt.totalQuestions || assessment?.questions.length || 0,
+      };
+
+      if (!attemptForAnalysis.assessmentId || !attemptForAnalysis.profileId) {
+        throw new Error('Missing attempt context for Gemini analysis.');
+      }
+
+      const finalCheatingCount = Math.max(tabViolations, updatedAttempt.cheatingCount);
+
       const savedResult = await saveAssessmentResultAnalysis({
-        attemptId: updatedAttempt.id,
-        assessmentId: updatedAttempt.assessmentId ?? assessment?.id ?? null,
-        profileId: user?.id ?? null,
+        attempt: attemptForAnalysis,
         overallScore: analysis.overallScore,
         strengths: analysis.strengths ?? [],
         weaknesses: analysis.weaknesses ?? [],
@@ -173,7 +186,20 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
         aiSummary: analysis.aiSummary ?? analysis.summary ?? null,
         skillScores: analysis.skillScores,
         completedCount,
-        cheatingCount: Math.max(tabViolations, updatedAttempt.cheatingCount),
+        cheatingCount: finalCheatingCount,
+      });
+
+      const computedProgress =
+        attemptForAnalysis.totalQuestions > 0
+          ? Math.min(100, Math.round((completedCount / attemptForAnalysis.totalQuestions) * 100))
+          : 100;
+
+      updateActiveAttempt({
+        status: 'completed',
+        answeredCount: completedCount,
+        progressPercent: computedProgress,
+        completedAt: new Date().toISOString(),
+        cheatingCount: finalCheatingCount,
       });
 
       setAssessmentResult(savedResult);

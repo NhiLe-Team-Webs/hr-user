@@ -16,4 +16,4 @@ export {
   getAttemptAnswerDetails,
   getCandidateProgress,
 } from './assessments';
-export { saveAssessmentResultAnalysis, getResultForAttempt } from './results';
+export { saveAssessmentResultAnalysis, getResultForCandidate } from './results';

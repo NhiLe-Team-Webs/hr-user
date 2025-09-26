@@ -34,8 +34,9 @@ export interface AssessmentResult {
 
 export interface AssessmentAttempt {
   id: string;
-  assessmentId?: string | null;
-  role?: string | null;
+  assessmentId: string;
+  profileId: string;
+  role: string;
   status: string;
   answeredCount: number;
   totalQuestions: number;

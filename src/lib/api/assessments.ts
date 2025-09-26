@@ -7,12 +7,13 @@ import {
   type SupabaseQuestionOptionData,
 } from './questionMappers';
 import type { AnswerInput, AnswerRow, AssessmentAttemptRow } from './types';
-import { getResultForAttempt } from './results';
+import { getResultForCandidate } from './results';
 import type { AssessmentResult } from '@/types/assessment';
 
 const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => ({
   id: row.id,
   assessmentId: row.assessment_id,
+  profileId: row.profile_id,
   role: row.role,
   status: row.status,
   answeredCount: row.answered_count ?? 0,
@@ -80,7 +81,7 @@ export const getAssessment = async (role: string): Promise<Assessment | null> =>
 
   const { data: questionRows, error: questionsError } = await supabase
     .from('questions')
-    .select('id, text, type, format, required, assessment_id, created_at')
+    .select('id, text, format, required, assessment_id, created_at')
     .eq('assessment_id', assessmentRow.id)
     .order('created_at', { ascending: true });
 
@@ -109,7 +110,7 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
 
   const { data, error } = await supabase
     .from('questions')
-    .select('id, text, type, format, required, assessment_id, created_at')
+    .select('id, text, format, required, assessment_id, created_at')
     .in('id', questionIds);
 
   if (error) {
@@ -124,7 +125,7 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
 
 export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => {
   const base = {
-    assessment_attempt_id: payload.attemptId ?? null,
+    attempt_id: payload.attemptId ?? null,
     result_id: payload.resultId ?? null,
     question_id: payload.questionId,
     user_answer_text: payload.userAnswerText ?? null,
@@ -292,8 +293,8 @@ export const submitAssessmentAttempt = async (
 export const getAnswersForAttempt = async (attemptId: string): Promise<AnswerRow[]> => {
   const { data, error } = await supabase
     .from('answers')
-    .select('id, assessment_attempt_id, result_id, question_id, user_answer_text, selected_option_id, created_at')
-    .eq('assessment_attempt_id', attemptId);
+    .select('id, attempt_id, result_id, question_id, user_answer_text, selected_option_id, created_at')
+    .eq('attempt_id', attemptId);
 
   if (error) {
     console.error('Failed to load answers for attempt:', error);
@@ -359,7 +360,13 @@ export const getCandidateProgress = async (
   }
 
   const attempt = mapAssessmentAttempt(data as AssessmentAttemptRow);
-  const result = await getResultForAttempt(attempt.id);
+  const result = await getResultForCandidate({
+    attemptId: attempt.id,
+    profileId: attempt.profileId,
+    assessmentId: attempt.assessmentId,
+    completedCount: attempt.answeredCount,
+    cheatingCount: attempt.cheatingCount,
+  });
 
   return { attempt, result };
 };

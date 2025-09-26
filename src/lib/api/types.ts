@@ -26,7 +26,7 @@ export interface CandidateInfo {
 
 export interface AnswerRow {
   id: string;
-  assessment_attempt_id: string | null;
+  attempt_id: string | null;
   result_id: string | null;
   question_id: string;
   user_answer_text: string | null;
@@ -61,19 +61,17 @@ export interface AssessmentAttemptRow {
 
 export interface ResultRow {
   id: string;
-  assessment_attempt_id: string;
+  user_id: string | null;
   assessment_id: string | null;
-  profile_id: string | null;
+  completed_at: string | null;
   overall_score: number | null;
-  strengths: string[] | null;
-  weaknesses: string[] | null;
+  strengths: unknown;
+  weaknesses: unknown;
   summary: string | null;
-  ai_summary: string | null;
+  ai_summary: unknown;
   skill_scores: Record<string, number> | null;
-  total_answered: number | null;
-  cheating_count: number | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  analysis_completed_at: string | null;
+  cheating_summary: unknown;
 }
 
 export type QuestionsByRole = Record<string, Question[]>;
