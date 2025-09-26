@@ -194,50 +194,48 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
   // Fetch assessment data from API
   useEffect(() => {
-  const fetchData = async () => {
-    try {
-      const assessmentData = await getAssessment(role.name);
-      if (!assessmentData) {
-        throw new Error('No assessment data returned');
-      }
-      setAssessment(assessmentData);
-      setTimeLeft(assessmentData.duration);
+    const fetchData = async () => {
+      try {
+        const assessmentData = await getAssessment(role.name);
+        if (!assessmentData) {
+          throw new Error('No assessment data returned');
+        }
+        setAssessment(assessmentData);
+        setTimeLeft(assessmentData.duration);
 
-      if (assessmentData.questions?.length > 0) {
-        const formattedQuestions: Question[] = assessmentData.questions.map((q: any) => {
-          const formattedQuestion: Question = {
-            id: q.id,
-            text: q.text,
-            type: q.type,
-            format: q.format,
-            required: q.required,
-          };
-
-          if (q.format === 'multiple_choice' && q.options) {
-            formattedQuestion.options = q.options.map((opt: any) => ({
-              id: opt.id,
-              text: opt.option_text,
+        if (assessmentData.questions?.length > 0) {
+          const formattedQuestions: Question[] = assessmentData.questions.map((q: Question) => {
+            const options = q.options?.map((opt) => ({
+              ...opt,
+              text: opt.text ?? opt.optionText ?? '',
             }));
-            formattedQuestion.correctAnswer = q.options.find((opt: any) => opt.is_correct)?.id;
-          }
 
-          return formattedQuestion;
-        });
-        console.log('Formatted questions:', formattedQuestions); // Debug log
-        setQuestions(formattedQuestions);
-      } else {
-        setQuestions([]);
-        setError(t('assessmentScreen.noQuestions'));
+            const correctAnswer =
+              q.correctAnswer ?? options?.find((opt) => opt.isCorrect)?.id;
+
+            return {
+              ...q,
+              points: q.points ?? 0,
+              options,
+              correctAnswer,
+            };
+          });
+
+          setQuestions(formattedQuestions);
+        } else {
+          setQuestions([]);
+          setError(t('assessmentScreen.noQuestions'));
+        }
+      } catch (err) {
+        setError(t('assessmentScreen.errorFetching'));
+        console.error('Error fetching assessment data:', err);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setError(t('assessmentScreen.errorFetching'));
-      console.error('Error fetching assessment data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  fetchData();
-}, [role, t]);
+    };
+
+    void fetchData();
+  }, [role, t]);
 
 
 
@@ -289,27 +287,31 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
         
         <div className="space-y-4">
           {question.format === 'multiple_choice' ? (
-            question.options?.map((option, index) => (
-              <motion.div
-                key={option.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <div
-                  className={`relative flex items-center p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 font-medium text-lg min-h-[70px]
-                  ${userAnswers[currentQuestionIndex] === index
-                      ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
-                      : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
-                  }`}
-                  onClick={() => handleOptionSelect(index)}
+            question.options && question.options.length > 0 ? (
+              question.options.map((option, index) => (
+                <motion.div
+                  key={option.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  <span className="flex-1 text-left text-sm">{option.text}</span>
-                </div>
-              </motion.div>
-            ))
+                  <div
+                    className={`relative flex items-center p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 font-medium text-lg min-h-[70px]
+                    ${userAnswers[currentQuestionIndex] === index
+                        ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
+                        : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
+                    }`}
+                    onClick={() => handleOptionSelect(index)}
+                  >
+                    <span className="flex-1 text-left text-sm">{option.text}</span>
+                  </div>
+                </motion.div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">Không có đáp án</p>
+            )
           ) : (
             <Textarea
               placeholder={t('assessmentScreen.typeYourAnswer')}

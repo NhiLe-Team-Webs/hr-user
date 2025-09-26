@@ -14,6 +14,8 @@ export interface Question {
 export interface Option {
   id: string;
   text: string;
+  optionText?: string;
+  isCorrect?: boolean;
 }
 
 export type AnswerValue = string | number;
