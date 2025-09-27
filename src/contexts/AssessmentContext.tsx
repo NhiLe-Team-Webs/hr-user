@@ -1,5 +1,13 @@
-﻿import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
-import type { Role, AssessmentResult, AssessmentAttempt } from '@/types/assessment';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type PropsWithChildren,
+} from 'react';
+import type { AssessmentAttempt, AssessmentResult, AssessmentSkillScore, Role } from '@/types/assessment';
 
 interface AssessmentState {
   selectedRole: Role | null;
@@ -17,6 +25,77 @@ interface AssessmentContextValue extends AssessmentState {
 }
 
 const STORAGE_KEY = 'hr-assessment-state';
+
+const normaliseStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+};
+
+const normaliseSkillScores = (value: unknown): AssessmentSkillScore[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) {
+        return null;
+      }
+      const record = entry as { name?: unknown; score?: unknown };
+      if (typeof record.name !== 'string') {
+        return null;
+      }
+      const score = typeof record.score === 'number' && Number.isFinite(record.score)
+        ? record.score
+        : typeof record.score === 'string'
+          ? Number.parseFloat(record.score)
+          : null;
+      if (score === null || Number.isNaN(score)) {
+        return null;
+      }
+      const name = record.name.trim();
+      if (!name) {
+        return null;
+      }
+      return { name, score };
+    })
+    .filter((entry): entry is AssessmentSkillScore => entry !== null);
+};
+
+const hydrateAssessmentResult = (value: unknown): AssessmentResult | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawScore = record.score;
+  let score: number | null = null;
+  if (typeof rawScore === 'number' && Number.isFinite(rawScore)) {
+    score = rawScore;
+  } else if (typeof rawScore === 'string') {
+    const parsed = Number.parseFloat(rawScore);
+    score = Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const summary = typeof record.summary === 'string' ? record.summary : null;
+  const completedAt = typeof record.completedAt === 'string' ? record.completedAt : null;
+
+  return {
+    score,
+    summary,
+    strengths: normaliseStringArray(record.strengths),
+    developmentAreas: normaliseStringArray(record.developmentAreas ?? record.weaknesses),
+    skillScores: normaliseSkillScores(record.skillScores),
+    recommendedRoles: normaliseStringArray(record.recommendedRoles),
+    developmentSuggestions: normaliseStringArray(record.developmentSuggestions),
+    completedAt,
+  };
+};
 
 const initialState: AssessmentState = {
   selectedRole: null,
@@ -37,7 +116,7 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
         const parsed = JSON.parse(stored) as AssessmentState;
         setState({
           selectedRole: parsed.selectedRole ?? null,
-          assessmentResult: parsed.assessmentResult ?? null,
+          assessmentResult: hydrateAssessmentResult(parsed.assessmentResult) ?? null,
           activeAttempt: parsed.activeAttempt ?? null,
         });
       }

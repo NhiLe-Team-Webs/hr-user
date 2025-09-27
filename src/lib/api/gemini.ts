@@ -321,6 +321,9 @@ const tryParseJson = (raw: unknown): unknown => {
     }
   }
 
+  const candidateText = typeof trimmed === 'string' ? trimmed : String(trimmed ?? '');
+  const snippet = candidateText.length > 1000 ? candidateText.slice(0, 1000) + '...' : candidateText;
+  console.error('[Gemini] Invalid JSON payload received from model', { snippet, totalLength: candidateText.length });
   throw new GeminiApiError('Gemini returned an invalid JSON payload.', { payload: raw });
 };
 
@@ -468,25 +471,20 @@ export const analyzeWithGemini = async (
     filteredAnswers,
   );
 
-  const body = {
+    const body = {
     contents: [
       {
-        role: 'user',
-        parts: [
-          {
-            text: prompt,
-          },
-        ],
+        parts: [{ text: prompt }],
       },
     ],
     generationConfig: {
       temperature: 0.2,
       topP: 0.9,
       topK: 32,
-      maxOutputTokens: 1024,
-      responseMimeType: 'application/json',
+      maxOutputTokens: 3000,
     },
   } satisfies Record<string, unknown>;
+
 
   const importMetaEnv = (import.meta as ImportMeta & {
     env?: Record<string, unknown>;
@@ -580,6 +578,13 @@ export const analyzeWithGemini = async (
       );
     }
 
+    if (response.status === 503) {
+      throw new GeminiApiError('Gemini API is currently unavailable. Please try again later.', {
+        status: response.status,
+        payload,
+      });
+    }
+
     throw new GeminiApiError('Gemini API request failed.', { status: response.status, payload });
   }
 
@@ -600,9 +605,34 @@ export const analyzeWithGemini = async (
 
 };
 
+const normaliseScore = (value: number | null): number | null => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+
+  const clamped = Math.max(0, Math.min(100, value));
+  return Math.round(clamped * 100) / 100;
+};
+
+const normaliseTextArray = (values: string[]): string[] =>
+  values
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
 export const toAssessmentResult = (analysis: GeminiAnalysisResponse): AssessmentResult => ({
-  score: analysis.overallScore ?? 0,
-  strengths: analysis.strengths.slice(0, 3),
+  score: normaliseScore(analysis.overallScore ?? null),
+  summary: analysis.summary?.trim()?.length ? analysis.summary.trim() : null,
+  strengths: normaliseTextArray(analysis.strengths),
+  developmentAreas: normaliseTextArray(analysis.developmentAreas),
+  skillScores: analysis.skillScores
+    .filter((item) => typeof item?.name === 'string' && Number.isFinite(item?.score))
+    .map((item) => ({
+      name: item.name.trim(),
+      score: normaliseScore(item.score) ?? 0,
+    })),
+  recommendedRoles: [],
+  developmentSuggestions: [],
+  completedAt: null,
 });
 
 export { MODEL_NAME as GEMINI_MODEL_NAME };

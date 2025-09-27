@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { GeminiAnalysisRequest } from './gemini';
+
 process.env.VITE_GEMINI_MAX_PROMPT_CHARS = process.env.VITE_GEMINI_MAX_PROMPT_CHARS ?? '1200';
 
 let importCounter = 0;
@@ -193,7 +195,7 @@ describe('analyzeWithGemini', () => {
       ],
     } satisfies Record<string, unknown>;
 
-    const request = {
+    const request: GeminiAnalysisRequest = {
       role: 'Support Specialist',
       candidateName: 'Jamie Example',
       language: 'en' as const,
@@ -235,6 +237,58 @@ describe('analyzeWithGemini', () => {
           assert.equal(payload?.finishReason, 'SAFETY');
           assert.deepEqual(payload?.promptFeedback, blockedResponse.promptFeedback);
           assert.deepEqual(payload?.safetyRatings, blockedResponse.candidates[0]?.safetyRatings);
+          return true;
+        },
+      );
+    } finally {
+      if (originalFetch) {
+        globalThis.fetch = originalFetch;
+      } else {
+        delete (globalThis as { fetch?: typeof globalThis.fetch }).fetch;
+      }
+    }
+  });
+
+  it('surfaces a helpful error when Gemini is unavailable', async () => {
+    const unavailablePayload = {
+      error: {
+        code: 503,
+        message: 'The service is currently unavailable.',
+        status: 'UNAVAILABLE',
+      },
+    } satisfies Record<string, unknown>;
+
+    const request: GeminiAnalysisRequest = {
+      role: 'Support Specialist',
+      candidateName: 'Jamie Example',
+      language: 'en',
+      answers: [
+        {
+          questionId: 'q1',
+          questionText: 'Tell me about yourself',
+          answerText: 'I am a dedicated professional.',
+          format: 'text',
+        },
+      ],
+    };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(unavailablePayload), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    try {
+      const { analyzeWithGemini, GeminiApiError } = await loadGeminiModule();
+
+      await assert.rejects(
+        () => analyzeWithGemini(request),
+        (error: unknown) => {
+          assert.ok(error instanceof GeminiApiError);
+          const typedError = error as InstanceType<typeof GeminiApiError>;
+          assert.equal(typedError.status, 503);
+          assert.match(typedError.message, /currently unavailable/i);
           return true;
         },
       );

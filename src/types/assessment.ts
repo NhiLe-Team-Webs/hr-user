@@ -38,9 +38,20 @@ export interface Role {
   title: string;
 }
 
-export interface AssessmentResult {
+export interface AssessmentSkillScore {
+  name: string;
   score: number;
+}
+
+export interface AssessmentResult {
+  score: number | null;
+  summary: string | null;
   strengths: string[];
+  developmentAreas: string[];
+  skillScores: AssessmentSkillScore[];
+  recommendedRoles: string[];
+  developmentSuggestions: string[];
+  completedAt: string | null;
 }
 
 

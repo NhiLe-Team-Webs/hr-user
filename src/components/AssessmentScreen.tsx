@@ -162,11 +162,14 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
       if (latest) {
         setAssessmentResult({
-          score:
-            typeof latest.totalScore === 'number' && Number.isFinite(latest.totalScore)
-              ? latest.totalScore
-              : 0,
+          score: latest.score,
+          summary: latest.summary,
           strengths: latest.strengths,
+          developmentAreas: latest.developmentAreas,
+          skillScores: latest.skillScores,
+          recommendedRoles: latest.recommendedRoles,
+          developmentSuggestions: latest.developmentSuggestions,
+          completedAt: latest.completedAt ?? latest.createdAt,
         });
       } else {
         setAssessmentResult(result.result);
@@ -188,6 +191,9 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
       if (error instanceof GeminiApiError) {
         if (error.status === 429) {
           return t('assessmentScreen.aiRateLimitError');
+        }
+        if (error.status === 503) {
+          return t('assessmentScreen.aiServiceUnavailableError');
         }
         return t('assessmentScreen.aiErrorDescription');
       }
