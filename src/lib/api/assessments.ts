@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabaseClient';
 import type { Question } from '@/types/question';
-import type { AssessmentAttempt, AssessmentResult } from '@/types/assessment';
+import type { AssessmentAttempt, AssessmentResult, AssessmentSkillScore } from '@/types/assessment';
 import {
   analyzeWithGemini,
   GEMINI_MODEL_NAME,
@@ -322,7 +322,9 @@ export const finaliseAssessmentAttempt = async (
       answers: payload.answers,
     });
 
-    const summary = {
+    const completedAt = new Date().toISOString();
+
+    const structuredSummary = {
       strengths: analysis.strengths,
       development_areas: analysis.developmentAreas,
       skill_scores: analysis.skillScores,
@@ -335,9 +337,14 @@ export const finaliseAssessmentAttempt = async (
       assessment_id: payload.assessmentId,
       overall_score: analysis.overallScore,
       strengths: analysis.strengths,
-      summary,
+      weaknesses: analysis.developmentAreas,
+      development_suggestions: analysis.developmentAreas,
+      skill_scores: analysis.skillScores,
+      summary: structuredSummary,
       ai_summary: analysis.summary,
       analysis_model: GEMINI_MODEL_NAME,
+      analysis_completed_at: completedAt,
+      insight_locale: payload.language,
     } satisfies Record<string, unknown>;
 
     const { error: resultError } = await supabase.from('results').insert(resultPayload);
@@ -347,13 +354,12 @@ export const finaliseAssessmentAttempt = async (
       throw new Error('Khong the luu ket qua danh gia.');
     }
 
-    const nowIso = new Date().toISOString();
     const { data: attemptData, error: attemptError } = await supabase
       .from('assessment_attempts')
       .update({
         status: 'completed',
-        completed_at: nowIso,
-        last_activity_at: nowIso,
+        completed_at: completedAt,
+        last_activity_at: completedAt,
         last_ai_error: null,
         ai_status: 'completed',
       })
@@ -366,11 +372,9 @@ export const finaliseAssessmentAttempt = async (
       throw new Error('Khong the cap nhat trang thai bai danh gia.');
     }
 
-    const mappedAttempt = mapAssessmentAttempt(attemptData as AssessmentAttemptRow);
-
     return {
-      attempt: mappedAttempt,
-      result: { ...toAssessmentResult(analysis), completedAt: mappedAttempt.completedAt ?? nowIso },
+      attempt: mapAssessmentAttempt(attemptData as AssessmentAttemptRow),
+      result: toAssessmentResult(analysis),
       aiSummary: analysis.summary,
     } satisfies FinaliseAssessmentResult;
   } catch (error) {
@@ -389,176 +393,201 @@ interface LatestResultRow {
   profile_id: string;
   assessment_id: string;
   overall_score?: number | string | null;
-  total_score?: number | string | null;
   strengths?: unknown;
   weaknesses?: unknown;
+  development_suggestions?: unknown;
+  skill_scores?: unknown;
+  recommended_roles?: unknown;
   summary?: unknown;
   ai_summary?: string | null;
   analysis_model?: string | null;
-  skill_scores?: unknown;
-  development_areas?: unknown;
-  development_suggestions?: unknown;
-  recommended_roles?: unknown;
-  completed_at?: string | null;
+  analysis_completed_at?: string | null;
+  insight_locale?: string | null;
   created_at: string;
 }
 
-const parseMaybeJsonObject = (value: unknown): Record<string, unknown> | null => {
-  if (!value) {
+type SummaryPayload = {
+  strengths?: unknown;
+  development_areas?: unknown;
+  skill_scores?: unknown;
+  recommended_roles?: unknown;
+  development_suggestions?: unknown;
+  overall_score?: unknown;
+  summary?: unknown;
+};
+
+const parseJsonCandidate = (value: unknown): unknown => {
+  if (value === null || value === undefined) {
     return null;
   }
 
   if (typeof value === 'string') {
     const trimmed = value.trim();
-    if (trimmed.length === 0) {
+    if (!trimmed) {
       return null;
     }
 
-    try {
-      const parsed = JSON.parse(trimmed);
-      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null;
-    } catch (error) {
-      console.warn('Failed to parse JSON summary payload:', error);
-      return null;
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === '[' && last === ']') || (first === '{' && last === '}')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (error) {
+        console.warn('[Gemini] Failed to parse JSON candidate from database field', {
+          error,
+          sample: trimmed.slice(0, 200),
+        });
+        return trimmed;
+      }
+    }
+
+    return trimmed;
+  }
+
+  return value;
+};
+
+const getSummaryPayload = (row: LatestResultRow): SummaryPayload | null => {
+  const parsed = parseJsonCandidate(row.summary);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as SummaryPayload;
+  }
+  return null;
+};
+
+const collectStringValues = (...candidates: unknown[]): string[] => {
+  const results: string[] = [];
+
+  for (const candidate of candidates) {
+    const parsed = parseJsonCandidate(candidate);
+    if (Array.isArray(parsed)) {
+      for (const entry of parsed) {
+        if (typeof entry === 'string') {
+          const trimmed = entry.trim();
+          if (trimmed.length > 0) {
+            results.push(trimmed);
+          }
+        }
+      }
+    } else if (typeof parsed === 'string') {
+      const trimmed = parsed.trim();
+      if (trimmed.length > 0) {
+        results.push(trimmed);
+      }
     }
   }
 
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of results) {
+    const key = value.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(value);
+    }
+  }
+
+  return unique;
+};
+
+const collectSkillScores = (...candidates: unknown[]): AssessmentSkillScore[] => {
+  const scores: AssessmentSkillScore[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const parsed = parseJsonCandidate(candidate);
+    if (!Array.isArray(parsed)) {
+      continue;
+    }
+
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+
+      const nameRaw = (entry as { name?: unknown }).name;
+      const scoreRaw = (entry as { score?: unknown }).score;
+      if (typeof nameRaw !== 'string') {
+        continue;
+      }
+
+      const name = nameRaw.trim();
+      if (!name || seen.has(name.toLowerCase())) {
+        continue;
+      }
+
+      let numericScore: number | null = null;
+      if (typeof scoreRaw === 'number') {
+        numericScore = scoreRaw;
+      } else if (typeof scoreRaw === 'string') {
+        const parsedScore = Number.parseFloat(scoreRaw);
+        if (Number.isFinite(parsedScore)) {
+          numericScore = parsedScore;
+        }
+      }
+
+      const safeScore = Number.isFinite(numericScore ?? NaN) ? numericScore ?? 0 : 0;
+      const clampedScore = Math.max(0, Math.min(100, Math.round(safeScore * 100) / 100));
+
+      scores.push({ name, score: clampedScore });
+      seen.add(name.toLowerCase());
+    }
+  }
+
+  return scores;
+};
+
+const extractStrengthsFromResult = (row: LatestResultRow, summary: SummaryPayload | null): string[] =>
+  collectStringValues(row.strengths, summary?.strengths);
+
+const extractDevelopmentAreasFromResult = (row: LatestResultRow, summary: SummaryPayload | null): string[] =>
+  collectStringValues(row.weaknesses, summary?.development_areas);
+
+const extractDevelopmentSuggestionsFromResult = (
+  row: LatestResultRow,
+  summary: SummaryPayload | null,
+): string[] => collectStringValues(row.development_suggestions, summary?.development_suggestions, summary?.development_areas);
+
+const extractRecommendedRolesFromResult = (row: LatestResultRow, summary: SummaryPayload | null): string[] =>
+  collectStringValues(row.recommended_roles, summary?.recommended_roles);
+
+const extractSkillScoresFromResult = (row: LatestResultRow, summary: SummaryPayload | null): AssessmentSkillScore[] =>
+  collectSkillScores(row.skill_scores, summary?.skill_scores);
+
+const extractSummaryText = (row: LatestResultRow, summary: SummaryPayload | null): string | null => {
+  const summaryField = parseJsonCandidate(summary?.summary);
+  if (typeof summaryField === 'string' && summaryField.trim().length > 0) {
+    return summaryField.trim();
+  }
+
+  if (typeof row.ai_summary === 'string' && row.ai_summary.trim().length > 0) {
+    return row.ai_summary.trim();
+  }
+
+  const rawSummary = row.summary;
+  if (typeof rawSummary === 'string' && rawSummary.trim().length > 0) {
+    return rawSummary.trim();
   }
 
   return null;
 };
 
-const getSummaryField = (
-  summaryPayload: Record<string, unknown> | null,
-  key: string,
-): unknown => (summaryPayload ? summaryPayload[key] : null);
+const resolveScore = (row: LatestResultRow, summary: SummaryPayload | null): number | null => {
+  const candidates: unknown[] = [summary?.overall_score, row.overall_score];
 
-const normaliseScoreValue = (value: unknown): number | null => {
-  let numeric: number | null = null;
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    numeric = value;
-  } else if (typeof value === 'string') {
-    const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed)) {
-      numeric = parsed;
-    }
-  }
-
-  if (numeric === null) {
-    return null;
-  }
-
-  const clamped = Math.max(0, Math.min(100, numeric));
-  return Math.round(clamped * 100) / 100;
-};
-
-const normaliseStringArray = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value
-      .filter((entry): entry is string => typeof entry === 'string')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      return [];
+  for (const candidate of candidates) {
+    const parsed = parseJsonCandidate(candidate);
+    if (typeof parsed === 'number' && Number.isFinite(parsed)) {
+      const value = Math.max(0, Math.min(100, parsed));
+      return Math.round(value * 100) / 100;
     }
 
-    try {
-      const parsed = JSON.parse(trimmed);
-      return normaliseStringArray(parsed);
-    } catch {
-      return [trimmed];
-    }
-  }
-
-  return [];
-};
-
-const mergeUniqueStrings = (...groups: string[][]): string[] => {
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  groups.forEach((group) => {
-    group.forEach((entry) => {
-      if (!seen.has(entry)) {
-        seen.add(entry);
-        result.push(entry);
+    if (typeof parsed === 'string') {
+      const value = Number.parseFloat(parsed);
+      if (Number.isFinite(value)) {
+        const clamped = Math.max(0, Math.min(100, value));
+        return Math.round(clamped * 100) / 100;
       }
-    });
-  });
-
-  return result;
-};
-
-const normaliseSkillScores = (value: unknown): AssessmentResult['skillScores'] => {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      return normaliseSkillScores(parsed);
-    } catch {
-      return [];
-    }
-  }
-
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => {
-      if (typeof entry !== 'object' || entry === null) {
-        return null;
-      }
-
-      const record = entry as { name?: unknown; score?: unknown };
-      if (typeof record.name !== 'string') {
-        return null;
-      }
-
-      const score = normaliseScoreValue(record.score ?? null);
-      if (score === null) {
-        return null;
-      }
-
-      const name = record.name.trim();
-      if (!name) {
-        return null;
-      }
-
-      return { name, score };
-    })
-    .filter((entry): entry is { name: string; score: number } => entry !== null);
-};
-
-const resolveSummaryText = (
-  row: LatestResultRow,
-  summaryPayload: Record<string, unknown> | null,
-): string | null => {
-  const fromSummary = getSummaryField(summaryPayload, 'summary');
-  if (typeof fromSummary === 'string') {
-    const trimmed = fromSummary.trim();
-    if (trimmed.length > 0) {
-      return trimmed;
-    }
-  }
-
-  if (typeof row.ai_summary === 'string') {
-    const trimmed = row.ai_summary.trim();
-    if (trimmed.length > 0) {
-      return trimmed;
     }
   }
 
@@ -571,14 +600,15 @@ export interface LatestResultRecord {
   profileId: string;
   score: number | null;
   strengths: string[];
-  developmentAreas: string[];
-  skillScores: AssessmentResult['skillScores'];
   summary: string | null;
-  recommendedRoles: string[];
+  developmentAreas: string[];
   developmentSuggestions: string[];
+  skillScores: AssessmentSkillScore[];
+  recommendedRoles: string[];
   analysisModel: string | null;
-  createdAt: string;
   completedAt: string | null;
+  insightLocale: string | null;
+  createdAt: string;
 }
 
 export const getLatestResult = async (
@@ -597,17 +627,16 @@ export const getLatestResult = async (
         profile_id,
         assessment_id,
         overall_score,
-        total_score,
         strengths,
         weaknesses,
+        development_suggestions,
+        skill_scores,
+        recommended_roles,
         summary,
         ai_summary,
         analysis_model,
-        skill_scores,
-        development_areas,
-        development_suggestions,
-        recommended_roles,
-        completed_at,
+        analysis_completed_at,
+        insight_locale,
         created_at
       `,
     )
@@ -629,56 +658,24 @@ export const getLatestResult = async (
   }
 
   const row = data as LatestResultRow;
-  const summaryPayload = parseMaybeJsonObject(row.summary ?? null);
-
-  const summaryScore = normaliseScoreValue(getSummaryField(summaryPayload, 'overall_score'));
-  const fallbackScore = normaliseScoreValue(row.overall_score ?? row.total_score ?? null);
-
-  const strengths = mergeUniqueStrings(
-    normaliseStringArray(row.strengths),
-    normaliseStringArray(getSummaryField(summaryPayload, 'strengths')),
-  );
-
-  const developmentAreas = mergeUniqueStrings(
-    normaliseStringArray(row.weaknesses ?? row.development_areas),
-    normaliseStringArray(
-      getSummaryField(summaryPayload, 'development_areas') ??
-        getSummaryField(summaryPayload, 'weaknesses'),
-    ),
-  );
-
-  const skillScores = (() => {
-    const fromSummary = normaliseSkillScores(getSummaryField(summaryPayload, 'skill_scores'));
-    if (fromSummary.length > 0) {
-      return fromSummary;
-    }
-
-    return normaliseSkillScores(row.skill_scores);
-  })();
-
-  const recommendedRoles = mergeUniqueStrings(
-    normaliseStringArray(row.recommended_roles),
-    normaliseStringArray(getSummaryField(summaryPayload, 'recommended_roles')),
-  );
-
-  const developmentSuggestions = mergeUniqueStrings(
-    normaliseStringArray(row.development_suggestions),
-    normaliseStringArray(getSummaryField(summaryPayload, 'development_suggestions')),
-  );
+  const summaryPayload = getSummaryPayload(row);
+  const score = resolveScore(row, summaryPayload);
 
   return {
     id: row.id,
     assessmentId: row.assessment_id,
     profileId: row.profile_id,
-    score: summaryScore ?? fallbackScore,
-    strengths,
-    developmentAreas,
-    skillScores,
-    summary: resolveSummaryText(row, summaryPayload),
-    recommendedRoles,
-    developmentSuggestions,
+    score,
+    strengths: extractStrengthsFromResult(row, summaryPayload),
+    summary: extractSummaryText(row, summaryPayload),
+    developmentAreas: extractDevelopmentAreasFromResult(row, summaryPayload),
+    developmentSuggestions: extractDevelopmentSuggestionsFromResult(row, summaryPayload),
+    skillScores: extractSkillScoresFromResult(row, summaryPayload),
+    recommendedRoles: extractRecommendedRolesFromResult(row, summaryPayload),
     analysisModel: typeof row.analysis_model === 'string' ? row.analysis_model : null,
+    completedAt: typeof row.analysis_completed_at === 'string' ? row.analysis_completed_at : null,
+    insightLocale: typeof row.insight_locale === 'string' ? row.insight_locale : null,
     createdAt: row.created_at,
-    completedAt: row.completed_at ?? null,
   } satisfies LatestResultRecord;
 };
+

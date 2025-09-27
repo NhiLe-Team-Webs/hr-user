@@ -321,6 +321,9 @@ const tryParseJson = (raw: unknown): unknown => {
     }
   }
 
+  const candidateText = typeof trimmed === 'string' ? trimmed : String(trimmed ?? '');
+  const snippet = candidateText.length > 1000 ? candidateText.slice(0, 1000) + '...' : candidateText;
+  console.error('[Gemini] Invalid JSON payload received from model', { snippet, totalLength: candidateText.length });
   throw new GeminiApiError('Gemini returned an invalid JSON payload.', { payload: raw });
 };
 
@@ -468,25 +471,20 @@ export const analyzeWithGemini = async (
     filteredAnswers,
   );
 
-  const body = {
+    const body = {
     contents: [
       {
-        role: 'user',
-        parts: [
-          {
-            text: prompt,
-          },
-        ],
+        parts: [{ text: prompt }],
       },
     ],
     generationConfig: {
       temperature: 0.2,
       topP: 0.9,
       topK: 32,
-      maxOutputTokens: 1024,
-      responseMimeType: 'application/json',
+      maxOutputTokens: 3000,
     },
   } satisfies Record<string, unknown>;
+
 
   const importMetaEnv = (import.meta as ImportMeta & {
     env?: Record<string, unknown>;
