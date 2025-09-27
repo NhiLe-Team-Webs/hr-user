@@ -1,4 +1,4 @@
-﻿import { supabase } from '../supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 import type { LandingPage } from '@/types/landingPage';
 
 const landingPageFallbacks = {

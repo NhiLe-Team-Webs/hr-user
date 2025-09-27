@@ -1,4 +1,4 @@
-﻿import type { Question, QuestionOption } from '../types/question';
+import type { Question, QuestionOption } from '@/types/question';
 
 export interface SupabaseQuestionOptionData {
   id: string;

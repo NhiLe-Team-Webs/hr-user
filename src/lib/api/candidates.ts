@@ -1,4 +1,4 @@
-﻿import { supabase } from '../supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 import type { ProfileUpdates, CandidateInfo } from './types';
 
 interface SupabaseCandidateDetails {

@@ -1,5 +1,5 @@
-﻿import { supabase } from '../supabaseClient';
-import type { Question } from '../types/question';
+import { supabase } from '@/lib/supabaseClient';
+import type { Question } from '@/types/question';
 import { mapSupabaseQuestion, MULTIPLE_CHOICE_FORMATS } from './questionMappers';
 
 export const getQuestionsByRole = async (role: string): Promise<Question[]> => {
