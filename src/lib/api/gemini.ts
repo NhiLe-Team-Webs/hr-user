@@ -48,10 +48,14 @@ export class GeminiApiError extends Error {
 }
 
 const ensureApiKey = (): string => {
-  const apiKey =
-    (import.meta as ImportMeta & {
-      env?: { VITE_GEMINI_API_KEY?: string };
-    }).env?.VITE_GEMINI_API_KEY ?? process.env.VITE_GEMINI_API_KEY;
+  const importMetaEnv = (import.meta as ImportMeta & {
+    env?: { VITE_GEMINI_API_KEY?: string };
+  }).env;
+
+  const processEnv =
+    typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>) : undefined;
+
+  const apiKey = importMetaEnv?.VITE_GEMINI_API_KEY ?? processEnv?.VITE_GEMINI_API_KEY;
   if (!apiKey) {
     throw new GeminiApiError('Gemini API key is not configured.');
   }
@@ -82,7 +86,11 @@ const resolveMaxPromptCharLength = (): number => {
     return fromImport;
   }
 
-  const fromProcess = resolveNumericEnvValue(process.env.VITE_GEMINI_MAX_PROMPT_CHARS);
+  const fromProcess = resolveNumericEnvValue(
+    typeof process !== 'undefined'
+      ? (process.env as Record<string, string | undefined>)?.VITE_GEMINI_MAX_PROMPT_CHARS
+      : undefined,
+  );
   if (typeof fromProcess === 'number' && fromProcess > 0) {
     return fromProcess;
   }
