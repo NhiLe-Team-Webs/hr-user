@@ -85,7 +85,18 @@
     "noAssessment": "This position currently has no assessment.",
     "typeYourAnswer": "Type your answer here...",
     "selectYourAnswer": "Select your answer",
-    "errorLoading": "Error loading assessment. Please try again later."
+    "errorLoading": "Error loading assessment. Please try again later.",
+    "loadingAssessment": "Loading assessment...",
+    "noAssessmentForRole": "No assessment available for this role.",
+    "noValidAttemptMessage": "No valid attempt found. Please go back to restart.",
+    "backButton": "Go back",
+    "questionProgress": "Question {current}/{total}",
+    "noOptionsAvailable": "No options available",
+    "tabWarningTitle": "Cheating Warning!",
+    "tabWarningDescription": "You switched tabs during the assessment. Your test will be cancelled if you violate {remaining} more time(s).",
+    "tabWarningAction": "Return to assessment",
+    "noQuestions": "No questions available.",
+    "errorFetching": "Failed to fetch assessment data. Please try again later."
   },
   "preAssessmentScreen": {
     "title": "Are you ready for the test?",

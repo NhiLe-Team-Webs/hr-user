@@ -1,6 +1,6 @@
-﻿// src/components/AssessmentScreen.tsx
+// src/components/AssessmentScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -310,7 +310,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                 </motion.div>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">Không có đáp án</p>
+              <p className="text-sm text-muted-foreground">{t('assessmentScreen.noOptionsAvailable')}</p>
             )
           ) : (
             <Textarea
@@ -327,18 +327,20 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   };
 
   if (loading) {
-    return <div className="text-center p-8">Äang táº£i bÃ i Ä‘Ã¡nh giÃ¡...</div>;
+    return <div className="text-center p-8">{t('assessmentScreen.loadingAssessment')}</div>;
   }
   
   if (!assessment) {
-    return <div className="text-center p-8 text-red-500">Không có bài đánh giá nào cho vai trò này.</div>;
+    return <div className="text-center p-8 text-red-500">{t('assessmentScreen.noAssessmentForRole')}</div>;
   }
 
   if (!activeAttempt) {
     return (
       <div className="text-center p-8 space-y-4">
-        <p className="text-muted-foreground">Không tìm thấy phiên làm bài hợp lệ. Vui lòng quay lại bước trước để bắt đầu lại.</p>
-        <Button onClick={() => window.history.back()} className="apple-button">Quay lại</Button>
+        <p className="text-muted-foreground">{t('assessmentScreen.noValidAttemptMessage')}</p>
+        <Button onClick={() => window.history.back()} className="apple-button">
+          {t('assessmentScreen.backButton')}
+        </Button>
       </div>
     );
   }
@@ -392,7 +394,12 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               />
             </div>
             <div className="flex justify-between items-center mt-2 text-sm text-gray-600">
-              <span>CÃ¢u {currentQuestionIndex + 1}/{questions.length}</span>
+              <span>
+                {t('assessmentScreen.questionProgress', {
+                  current: currentQuestionIndex + 1,
+                  total: questions.length,
+                })}
+              </span>
               <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
             </div>
           </motion.div>
@@ -459,14 +466,16 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#EA3323">
                 <path d="m40-120 440-760 440 760H40Zm115.33-66.67h649.34L480-746.67l-324.67 560ZM482.78-238q14.22 0 23.72-9.62 9.5-9.61 9.5-23.83 0-14.22-9.62-23.72-9.5-14.22 0-23.72 9.62-9.62 9.5 23.83 0 14.22 9.62 23.72 9.62 9.5 23.83 9.5Zm-33.45-114H516v-216h-66.67v216ZM480-466.67Z"/>
               </svg>
-              <AlertDialogTitle>Cáº£nh bÃ¡o Gian láº­n!</AlertDialogTitle>
+              <AlertDialogTitle>{t('assessmentScreen.tabWarningTitle')}</AlertDialogTitle>
             </div>
             <AlertDialogDescription>
-              Báº¡n Ä‘Ã£ chuyá»ƒn tab trong khi lÃ m bÃ i. BÃ i kiá»ƒm tra cá»§a báº¡n sáº½ bá»‹ há»§y náº¿u báº¡n vi pháº¡m thÃªm {3 - tabViolations} láº§n ná»¯a.
+              {t('assessmentScreen.tabWarningDescription', { remaining: 3 - tabViolations })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setIsAlertOpen(false)}>Quay láº¡i bÃ i lÃ m</AlertDialogAction>
+            <AlertDialogAction onClick={() => setIsAlertOpen(false)}>
+              {t('assessmentScreen.tabWarningAction')}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
