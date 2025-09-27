@@ -197,12 +197,42 @@ const tryParseJson = (raw: unknown): unknown => {
 
 const extractCandidateResponse = (response: unknown): unknown => {
   if (!response || typeof response !== 'object') {
-    return null;
+    throw new GeminiApiError('Gemini response does not include a JSON object.', {
+      payload: response,
+    });
   }
 
   const candidates = (response as { candidates?: unknown }).candidates;
   if (!Array.isArray(candidates) || candidates.length === 0) {
-    return null;
+    const promptFeedback = (response as { promptFeedback?: unknown }).promptFeedback;
+    let detail = '';
+
+    if (promptFeedback && typeof promptFeedback === 'object') {
+      const blockReason = (promptFeedback as { blockReason?: unknown }).blockReason;
+      const blockReasonText = typeof blockReason === 'string' ? blockReason : null;
+
+      const feedbackSegments: string[] = [];
+      if (blockReasonText) {
+        feedbackSegments.push(`block reason: ${blockReasonText}`);
+      }
+
+      try {
+        const serialised = JSON.stringify(promptFeedback);
+        if (serialised && serialised !== '{}' && serialised !== 'null') {
+          feedbackSegments.push(`prompt feedback: ${serialised}`);
+        }
+      } catch (error) {
+        feedbackSegments.push('prompt feedback unavailable');
+      }
+
+      if (feedbackSegments.length > 0) {
+        detail = ` (${feedbackSegments.join('; ')})`;
+      }
+    }
+
+    throw new GeminiApiError(`Gemini response did not include any candidates${detail}.`, {
+      payload: response,
+    });
   }
 
   const [firstCandidate] = candidates as Array<{ content?: unknown }>;
