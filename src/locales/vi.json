@@ -126,7 +126,14 @@
     "thankyou": "Cảm ơn bạn đã hoàn thành!",
     "missingTitle": "Chúng tôi chưa thể tìm thấy kết quả mới nhất của bạn.",
     "missingDescription": "Vui lòng hoàn thành bài đánh giá trước hoặc làm mới trang này khi kết quả của bạn đã sẵn sàng.",
-    "backToSelection": "Quay lại lựa chọn vai trò"
+    "backToSelection": "Quay lại lựa chọn vai trò",
+    "aiPendingTitle": "Đang hoàn tất bản tóm tắt của bạn",
+    "aiPendingDescription": "Hệ thống AI vẫn đang phân tích câu trả lời. Thông thường quá trình này chỉ mất chưa tới một phút.",
+    "aiPendingCta": "Tải lại kết quả",
+    "aiFailedTitle": "Không thể tạo kết quả",
+    "aiFailedDescription": "Đã xảy ra lỗi khi phân tích bằng AI. Vui lòng thử lại.",
+    "aiFailedDescriptionWithError": "Đã xảy ra lỗi khi phân tích bằng AI. Vui lòng thử lại. (Chi tiết: {error})",
+    "aiRetryCta": "Thử lại"
   },
   "tryoutScreen": {
     "title": "Chào Mừng Đến Trung Tâm Thử Việc",

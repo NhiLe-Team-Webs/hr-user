@@ -195,7 +195,7 @@ const extractCandidateResponse = (response: unknown): unknown => {
   }
 };
 
-export const generateGeminiAnalysis = async (
+export const analyzeWithGemini = async (
   request: GeminiAnalysisRequest,
 ): Promise<GeminiAnalysisResponse> => {
   const apiKey = ensureApiKey();
