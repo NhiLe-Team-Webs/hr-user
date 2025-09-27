@@ -7,9 +7,9 @@ type NextRoute = '/result' | '/assessment' | '/role-selection';
 
 interface SupabaseResultRow {
   id: string;
-  total_score: number | null;
+  overall_score?: number | string | null;
+  total_score?: number | string | null;
   strengths?: string[] | null;
-  insights?: string[] | null;
   summary?: { strengths?: string[] | null } | null;
   assessment?: Array<{ target_role: string | null }> | null;
 }
@@ -51,10 +51,6 @@ const normaliseStrengths = (row: SupabaseResultRow): string[] => {
     candidates.push(row.strengths);
   }
 
-  if (Array.isArray(row.insights)) {
-    candidates.push(row.insights);
-  }
-
   const summaryStrengths = row.summary?.strengths;
   if (Array.isArray(summaryStrengths)) {
     candidates.push(summaryStrengths);
@@ -81,9 +77,8 @@ export const resolveAssessmentState = async ({
     .select(
       `
         id,
-        total_score,
+        overall_score,
         strengths,
-        insights,
         summary,
         assessment:assessments(target_role)
       `,
@@ -101,7 +96,8 @@ export const resolveAssessmentState = async ({
 
   if (resultRow) {
     const strengths = normaliseStrengths(resultRow);
-    const score = Number(resultRow.total_score ?? 0);
+    const rawScore = resultRow.overall_score ?? resultRow.total_score;
+    const score = Number(rawScore ?? 0);
     const roleName = resultRow.assessment?.[0]?.target_role ?? null;
 
     return {
