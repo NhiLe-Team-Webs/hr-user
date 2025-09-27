@@ -85,7 +85,18 @@
     "noAssessment": "Vị trí này hiện tại không có bài đánh giá.",
     "typeYourAnswer": "Nhập câu trả lời của bạn tại đây...",
     "selectYourAnswer": "Chọn câu trả lời của bạn",
-    "errorLoading": "Lỗi tải bài đánh giá. Vui lòng thử lại sau."
+    "errorLoading": "Lỗi tải bài đánh giá. Vui lòng thử lại sau.",
+    "loadingAssessment": "Đang tải bài đánh giá...",
+    "noAssessmentForRole": "Không có bài đánh giá nào cho vai trò này.",
+    "noValidAttemptMessage": "Không tìm thấy phiên làm bài hợp lệ. Vui lòng quay lại bước trước để bắt đầu lại.",
+    "backButton": "Quay lại",
+    "questionProgress": "Câu {current}/{total}",
+    "noOptionsAvailable": "Không có đáp án",
+    "tabWarningTitle": "Cảnh báo gian lận!",
+    "tabWarningDescription": "Bạn đã chuyển tab trong khi làm bài. Bài kiểm tra của bạn sẽ bị hủy nếu bạn vi phạm thêm {remaining} lần nữa.",
+    "tabWarningAction": "Quay lại bài làm",
+    "noQuestions": "Không có câu hỏi nào.",
+    "errorFetching": "Không thể tải dữ liệu bài đánh giá. Vui lòng thử lại sau."
   },
   "preAssessmentScreen": {
     "title": "Bạn đã sẵn sàng cho bài kiểm tra chưa?",
