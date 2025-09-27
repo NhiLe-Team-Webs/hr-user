@@ -58,7 +58,46 @@ const ensureApiKey = (): string => {
   return apiKey;
 };
 
-const buildPrompt = (request: GeminiAnalysisRequest): string => {
+const resolveNumericEnvValue = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const resolveMaxPromptCharLength = (): number => {
+  const fromImport = resolveNumericEnvValue(
+    (import.meta as ImportMeta & { env?: { VITE_GEMINI_MAX_PROMPT_CHARS?: unknown } }).env
+      ?.VITE_GEMINI_MAX_PROMPT_CHARS,
+  );
+  if (typeof fromImport === 'number' && fromImport > 0) {
+    return fromImport;
+  }
+
+  const fromProcess = resolveNumericEnvValue(process.env.VITE_GEMINI_MAX_PROMPT_CHARS);
+  if (typeof fromProcess === 'number' && fromProcess > 0) {
+    return fromProcess;
+  }
+
+  return 12_000;
+};
+
+const MAX_PROMPT_CHAR_LENGTH = resolveMaxPromptCharLength();
+const MIN_TRUNCATED_ANSWER_CHARS = 400;
+const TRUNCATION_STEP_CHARS = 200;
+
+const buildPrompt = (
+  request: Pick<GeminiAnalysisRequest, 'candidateName' | 'role' | 'language'>,
+  answers: GeminiAnswerPayload[],
+): string => {
   const languageInstruction =
     request.language === 'vi'
       ?
@@ -71,14 +110,18 @@ const buildPrompt = (request: GeminiAnalysisRequest): string => {
       name: request.candidateName,
       target_role: request.role,
     },
-    answers: request.answers.map((answer, index) => ({
-      order: index + 1,
-      question_id: answer.questionId,
-      question_text: answer.questionText,
-      answer_text: answer.answerText,
-      format: answer.format,
-      options: answer.options,
-    })),
+    answers: answers.map((answer, index) => {
+      const serialised: { order: number; answer_text: string; question_id?: string } = {
+        order: index + 1,
+        answer_text: answer.answerText,
+      };
+
+      if (answer.questionId) {
+        serialised.question_id = answer.questionId;
+      }
+
+      return serialised;
+    }),
   } satisfies Record<string, unknown>;
 
   return [
@@ -95,6 +138,81 @@ const buildPrompt = (request: GeminiAnalysisRequest): string => {
     'Assessment context:',
     JSON.stringify(payload, null, 2),
   ].join('\n\n');
+};
+
+const truncateAnswers = (
+  answers: GeminiAnswerPayload[],
+  maxLength: number,
+): GeminiAnswerPayload[] => {
+  const ellipsis = '…';
+  const maxContentLength = Math.max(0, maxLength - ellipsis.length);
+
+  return answers.map((answer) => {
+    const trimmed = answer.answerText.trim();
+    if (trimmed.length <= maxLength) {
+      return { ...answer, answerText: trimmed } satisfies GeminiAnswerPayload;
+    }
+
+    const truncated = trimmed.slice(0, maxContentLength).trimEnd();
+    return {
+      ...answer,
+      answerText: `${truncated}${ellipsis}`,
+    } satisfies GeminiAnswerPayload;
+  });
+};
+
+const preparePrompt = (
+  request: GeminiAnalysisRequest,
+  answers: GeminiAnswerPayload[],
+): {
+  prompt: string;
+  promptLength: number;
+  basePromptLength: number;
+  truncated: boolean;
+} => {
+  const sanitisedAnswers = answers.map((answer) => ({
+    ...answer,
+    answerText: answer.answerText.trim(),
+  }));
+
+  const buildWith = (candidateAnswers: GeminiAnswerPayload[]) =>
+    buildPrompt(request, candidateAnswers);
+
+  let prompt = buildWith(sanitisedAnswers);
+  let promptLength = prompt.length;
+  const basePromptLength = promptLength;
+
+  if (promptLength <= MAX_PROMPT_CHAR_LENGTH) {
+    return {
+      prompt,
+      promptLength,
+      basePromptLength,
+      truncated: false,
+    };
+  }
+
+  let limitPerAnswer = Math.max(
+    MIN_TRUNCATED_ANSWER_CHARS,
+    Math.floor(MAX_PROMPT_CHAR_LENGTH / Math.max(1, sanitisedAnswers.length)),
+  );
+
+  let truncatedAnswers = truncateAnswers(sanitisedAnswers, limitPerAnswer);
+  prompt = buildWith(truncatedAnswers);
+  promptLength = prompt.length;
+
+  while (promptLength > MAX_PROMPT_CHAR_LENGTH && limitPerAnswer > 0) {
+    limitPerAnswer = Math.max(0, limitPerAnswer - TRUNCATION_STEP_CHARS);
+    truncatedAnswers = truncateAnswers(sanitisedAnswers, limitPerAnswer);
+    prompt = buildWith(truncatedAnswers);
+    promptLength = prompt.length;
+  }
+
+  return {
+    prompt,
+    promptLength,
+    basePromptLength,
+    truncated: true,
+  };
 };
 
 const normaliseNumber = (value: unknown): number | null => {
@@ -337,16 +455,18 @@ export const analyzeWithGemini = async (
     } satisfies GeminiAnalysisResponse;
   }
 
+  const { prompt, promptLength, basePromptLength, truncated } = preparePrompt(
+    request,
+    filteredAnswers,
+  );
+
   const body = {
     contents: [
       {
         role: 'user',
         parts: [
           {
-            text: buildPrompt({
-              ...request,
-              answers: filteredAnswers,
-            }),
+            text: prompt,
           },
         ],
       },
@@ -360,11 +480,24 @@ export const analyzeWithGemini = async (
     },
   } satisfies Record<string, unknown>;
 
-  if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) {
+  const isDev = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+
+  if (truncated) {
+    console.warn('[Gemini] Prompt truncated to respect length limit', {
+      answerCount: filteredAnswers.length,
+      language: request.language,
+      role: request.role,
+      promptLength,
+      basePromptLength,
+      maxPromptLength: MAX_PROMPT_CHAR_LENGTH,
+    });
+  } else if (isDev) {
     console.info('[Gemini] Submitting analysis request', {
       answerCount: filteredAnswers.length,
       language: request.language,
       role: request.role,
+      promptLength,
+      maxPromptLength: MAX_PROMPT_CHAR_LENGTH,
     });
   }
 
