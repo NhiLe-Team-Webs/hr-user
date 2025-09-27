@@ -84,7 +84,7 @@ describe('resolveAssessmentState', () => {
       resultResponse: {
         data: {
           id: 'result-1',
-          total_score: 92,
+          overall_score: 92,
           strengths: ['Focus', 'Collaboration'],
           assessment: [{ target_role: 'Content Creator' }],
         },
