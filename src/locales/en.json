@@ -126,7 +126,14 @@
     "thankyou": "Thank you for completing!",
     "missingTitle": "We could not find your latest results yet.",
     "missingDescription": "Please complete the assessment first or refresh this page once your results are ready.",
-    "backToSelection": "Back to role selection"
+    "backToSelection": "Back to role selection",
+    "aiPendingTitle": "We're finalising your summary",
+    "aiPendingDescription": "Our AI is still analysing your responses. This usually finishes within a minute.",
+    "aiPendingCta": "Refresh result",
+    "aiFailedTitle": "We couldn’t generate your result",
+    "aiFailedDescription": "An error occurred while creating your AI summary. Please try again.",
+    "aiFailedDescriptionWithError": "An error occurred while creating your AI summary. Please try again. (Details: {error})",
+    "aiRetryCta": "Try again"
   },
   "tryoutScreen": {
     "title": "Welcome to the Tryout Center",

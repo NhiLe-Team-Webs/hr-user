@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
-import { resolveAssessmentState } from '@/lib/api';
+import { resolveAssessmentState, getLatestResult } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
 
 const FullScreenLoader = () => (
@@ -243,27 +243,113 @@ const AssessmentRoute = () => {
 
 const ResultRoute = () => {
   const navigate = useNavigate();
-  const { assessmentResult } = useAssessment();
+  const { user } = useAuth();
+  const { assessmentResult, setAssessmentResult, activeAttempt } = useAssessment();
   const { t } = useLanguage();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!assessmentResult) {
+  const fetchLatestResult = useCallback(async () => {
+    if (!user?.id) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const latest = await getLatestResult(user.id, activeAttempt?.assessmentId);
+      if (latest) {
+        setAssessmentResult({
+          score:
+            typeof latest.totalScore === 'number' && Number.isFinite(latest.totalScore)
+              ? latest.totalScore
+              : 0,
+          strengths: latest.strengths,
+        });
+      } else {
+        setAssessmentResult(null);
+      }
+    } catch (err) {
+      console.error('Failed to load latest assessment result:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeAttempt?.assessmentId, setAssessmentResult, user?.id]);
+
+  useEffect(() => {
+    void fetchLatestResult();
+  }, [fetchLatestResult]);
+
+  if (isLoading) {
+    return <FullScreenLoader />;
+  }
+
+  if (error) {
     return (
       <ErrorPage
-        title={t('resultScreen.missingTitle')}
-        description={t('resultScreen.missingDescription')}
-        ctaLabel={t('resultScreen.backToSelection')}
+        title={t('resultScreen.aiFailedTitle')}
+        description={t('resultScreen.aiFailedDescriptionWithError', { error })}
+        ctaLabel={t('resultScreen.aiRetryCta')}
         onRetry={() => {
-          navigate('/role-selection');
+          void fetchLatestResult();
+        }}
+      />
+    );
+  }
+
+  if (assessmentResult) {
+    return (
+      <ResultScreen
+        result={assessmentResult}
+        onTryoutClick={() => {
+          navigate('/tryout');
+        }}
+      />
+    );
+  }
+
+  const aiStatus = activeAttempt?.aiStatus ?? null;
+  const lastAiError = activeAttempt?.lastAiError ?? null;
+
+  if (aiStatus === 'processing') {
+    return (
+      <ErrorPage
+        title={t('resultScreen.aiPendingTitle')}
+        description={t('resultScreen.aiPendingDescription')}
+        ctaLabel={t('resultScreen.aiPendingCta')}
+        onRetry={() => {
+          void fetchLatestResult();
+        }}
+      />
+    );
+  }
+
+  if (aiStatus === 'failed') {
+    const description = lastAiError
+      ? t('resultScreen.aiFailedDescriptionWithError', { error: lastAiError })
+      : t('resultScreen.aiFailedDescription');
+
+    return (
+      <ErrorPage
+        title={t('resultScreen.aiFailedTitle')}
+        description={description}
+        ctaLabel={t('resultScreen.aiRetryCta')}
+        onRetry={() => {
+          void fetchLatestResult();
         }}
       />
     );
   }
 
   return (
-    <ResultScreen
-      result={assessmentResult}
-      onTryoutClick={() => {
-        navigate('/tryout');
+    <ErrorPage
+      title={t('resultScreen.missingTitle')}
+      description={t('resultScreen.missingDescription')}
+      ctaLabel={t('resultScreen.backToSelection')}
+      onRetry={() => {
+        navigate('/role-selection');
       }}
     />
   );

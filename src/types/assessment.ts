@@ -47,6 +47,7 @@ export interface AssessmentResult {
 
 export interface AssessmentAttempt {
   id: string;
+  assessmentId: string;
   status: string;
   answeredCount: number;
   totalQuestions: number;
@@ -55,4 +56,6 @@ export interface AssessmentAttempt {
   submittedAt?: string | null;
   completedAt?: string | null;
   lastActivityAt?: string | null;
+  aiStatus?: 'idle' | 'processing' | 'completed' | 'failed' | null;
+  lastAiError?: string | null;
 }

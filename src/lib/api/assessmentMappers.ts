@@ -3,6 +3,7 @@ import type { AssessmentAttemptRow } from './types';
 
 export const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => ({
   id: row.id,
+  assessmentId: row.assessment_id,
   status: row.status,
   answeredCount: row.answered_count ?? 0,
   totalQuestions: row.total_questions ?? 0,
@@ -11,4 +12,6 @@ export const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttem
   submittedAt: row.submitted_at,
   completedAt: row.completed_at,
   lastActivityAt: row.last_activity_at,
+  aiStatus: (row.ai_status as AssessmentAttempt['aiStatus']) ?? null,
+  lastAiError: row.last_ai_error ?? null,
 });

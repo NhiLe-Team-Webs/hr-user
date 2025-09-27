@@ -2,10 +2,11 @@ import { supabase } from '@/lib/supabaseClient';
 import type { Question } from '@/types/question';
 import type { AssessmentAttempt, AssessmentResult } from '@/types/assessment';
 import {
-  generateGeminiAnalysis,
+  analyzeWithGemini,
   GEMINI_MODEL_NAME,
   toAssessmentResult,
   type GeminiAnswerPayload,
+  type GeminiAnalysisResponse,
 } from './gemini';
 import {
   mapSupabaseQuestion,
@@ -238,6 +239,8 @@ export const startAssessmentAttempt = async (payload: {
       status: 'in_progress',
       started_at: nowIso,
       last_activity_at: nowIso,
+      ai_status: 'idle',
+      last_ai_error: null,
     })
     .select()
     .single();
@@ -259,6 +262,7 @@ export const submitAssessmentAttempt = async (attemptId: string): Promise<Assess
       submitted_at: nowIso,
       last_activity_at: nowIso,
       last_ai_error: null,
+      ai_status: 'processing',
     })
     .eq('id', attemptId)
     .select()
@@ -286,6 +290,7 @@ const logAiFailure = async (attemptId: string, message: string) => {
     .update({
       last_ai_error: truncateErrorMessage(message),
       last_activity_at: nowIso,
+      ai_status: 'failed',
     })
     .eq('id', attemptId);
 };
@@ -310,7 +315,7 @@ export const finaliseAssessmentAttempt = async (
   payload: FinaliseAssessmentOptions,
 ): Promise<FinaliseAssessmentResult> => {
   try {
-    const analysis = await generateGeminiAnalysis({
+    const analysis: GeminiAnalysisResponse = await analyzeWithGemini({
       role: payload.role,
       candidateName: payload.candidateName,
       language: payload.language,
@@ -325,17 +330,17 @@ export const finaliseAssessmentAttempt = async (
       summary: analysis.summary,
     } satisfies Record<string, unknown>;
 
-    const { error: resultError } = await supabase
-      .from('results')
-      .insert({
-        profile_id: payload.profileId,
-        assessment_id: payload.assessmentId,
-        total_score: analysis.overallScore,
-        strengths: analysis.strengths,
-        summary,
-        ai_summary: analysis.summary,
-        analysis_model: GEMINI_MODEL_NAME,
-      });
+    const resultPayload = {
+      profile_id: payload.profileId,
+      assessment_id: payload.assessmentId,
+      total_score: analysis.overallScore,
+      strengths: analysis.strengths,
+      summary,
+      ai_summary: analysis.summary,
+      analysis_model: GEMINI_MODEL_NAME,
+    } satisfies Record<string, unknown>;
+
+    const { error: resultError } = await supabase.from('results').insert(resultPayload);
 
     if (resultError) {
       console.error('Failed to persist assessment result:', resultError);
@@ -350,6 +355,7 @@ export const finaliseAssessmentAttempt = async (
         completed_at: nowIso,
         last_activity_at: nowIso,
         last_ai_error: null,
+        ai_status: 'completed',
       })
       .eq('id', payload.attemptId)
       .select()
@@ -374,4 +380,124 @@ export const finaliseAssessmentAttempt = async (
     await logAiFailure(payload.attemptId, message);
     throw error;
   }
+};
+
+interface LatestResultRow {
+  id: string;
+  profile_id: string;
+  assessment_id: string;
+  total_score: number | null;
+  strengths?: string[] | null;
+  insights?: string[] | null;
+  summary?: { strengths?: string[] | null; summary?: string | null } | null;
+  ai_summary?: string | null;
+  analysis_model?: string | null;
+  created_at: string;
+}
+
+const extractStrengthsFromResult = (row: LatestResultRow): string[] => {
+  const candidates: unknown[] = [];
+
+  if (Array.isArray(row.strengths)) {
+    candidates.push(row.strengths);
+  }
+
+  if (Array.isArray(row.insights)) {
+    candidates.push(row.insights);
+  }
+
+  const summaryStrengths = row.summary?.strengths;
+  if (Array.isArray(summaryStrengths)) {
+    candidates.push(summaryStrengths);
+  }
+
+  const [firstValid] = candidates as string[][];
+  return firstValid ?? [];
+};
+
+const extractSummaryText = (row: LatestResultRow): string | null => {
+  const summaryField = row.summary?.summary;
+  if (typeof summaryField === 'string' && summaryField.trim().length > 0) {
+    return summaryField.trim();
+  }
+
+  if (typeof row.ai_summary === 'string' && row.ai_summary.trim().length > 0) {
+    return row.ai_summary.trim();
+  }
+
+  return null;
+};
+
+export interface LatestResultRecord {
+  id: string;
+  assessmentId: string;
+  profileId: string;
+  totalScore: number | null;
+  strengths: string[];
+  summary: string | null;
+  analysisModel: string | null;
+  createdAt: string;
+}
+
+export const getLatestResult = async (
+  profileId: string,
+  assessmentId?: string | null,
+): Promise<LatestResultRecord | null> => {
+  if (!profileId) {
+    throw new Error('Khong the tai ket qua danh gia.');
+  }
+
+  let query = supabase
+    .from('results')
+    .select(
+      `
+        id,
+        profile_id,
+        assessment_id,
+        total_score,
+        strengths,
+        insights,
+        summary,
+        ai_summary,
+        analysis_model,
+        created_at
+      `,
+    )
+    .eq('profile_id', profileId);
+
+  if (assessmentId) {
+    query = query.eq('assessment_id', assessmentId);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+  if (error) {
+    console.error('Failed to fetch latest assessment result:', error);
+    throw new Error('Khong the tai ket qua danh gia.');
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const row = data as LatestResultRow;
+  const rawScore =
+    typeof row.total_score === 'string'
+      ? Number.parseFloat(row.total_score)
+      : row.total_score;
+  const totalScore =
+    typeof rawScore === 'number' && Number.isFinite(rawScore)
+      ? Math.max(0, Math.min(100, Math.round(rawScore * 100) / 100))
+      : null;
+
+  return {
+    id: row.id,
+    assessmentId: row.assessment_id,
+    profileId: row.profile_id,
+    totalScore,
+    strengths: extractStrengthsFromResult(row),
+    summary: extractSummaryText(row),
+    analysisModel: typeof row.analysis_model === 'string' ? row.analysis_model : null,
+    createdAt: row.created_at,
+  } satisfies LatestResultRecord;
 };

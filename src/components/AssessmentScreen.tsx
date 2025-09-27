@@ -9,6 +9,7 @@ import {
   upsertAnswer,
   submitAssessmentAttempt,
   finaliseAssessmentAttempt,
+  getLatestResult,
   type FinaliseAssessmentOptions,
 } from '../lib/api';
 import { Role, UserAnswers, Question, AnswerValue, Assessment } from '../types/assessment';
@@ -136,7 +137,25 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
     const result = await finaliseAssessmentAttempt(payload);
     updateActiveAttempt(result.attempt);
-    setAssessmentResult(result.result);
+
+    try {
+      const latest = await getLatestResult(payload.profileId, payload.assessmentId);
+      if (latest) {
+        setAssessmentResult({
+          score:
+            typeof latest.totalScore === 'number' && Number.isFinite(latest.totalScore)
+              ? latest.totalScore
+              : 0,
+          strengths: latest.strengths,
+        });
+      } else {
+        setAssessmentResult(result.result);
+      }
+    } catch (error) {
+      console.error('Failed to refresh latest assessment result:', error);
+      setAssessmentResult(result.result);
+    }
+
     finalisePayloadRef.current = null;
     onFinish();
   }, [onFinish, setAssessmentResult, updateActiveAttempt]);
@@ -154,10 +173,14 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     } catch (error) {
       console.error('Failed to retry AI analysis:', error);
       setSubmissionError(t('assessmentScreen.aiErrorDescription'));
+      updateActiveAttempt({
+        aiStatus: 'failed',
+        lastAiError: error instanceof Error ? error.message : null,
+      });
     } finally {
       setIsFinalising(false);
     }
-  }, [runAiAnalysis, t]);
+  }, [runAiAnalysis, t, updateActiveAttempt]);
 
   const finishAssessment = useCallback(async () => {
     if (!activeAttempt || !assessment || !assessment.id || !user) {
@@ -232,6 +255,10 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     } catch (error) {
       console.error('Failed to finalise assessment attempt:', error);
       setSubmissionError(t('assessmentScreen.aiErrorDescription'));
+      updateActiveAttempt({
+        aiStatus: 'failed',
+        lastAiError: error instanceof Error ? error.message : null,
+      });
     } finally {
       setIsFinalising(false);
     }

@@ -162,6 +162,39 @@ const parseGeminiPayload = (payload: unknown): GeminiAnalysisResponse => {
   } satisfies GeminiAnalysisResponse;
 };
 
+const tryParseJson = (raw: unknown): unknown => {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+
+  if (typeof raw === 'object') {
+    return raw;
+  }
+
+  if (typeof raw !== 'string') {
+    return null;
+  }
+
+  const trimmed = raw.trim();
+  const candidates: string[] = [trimmed];
+
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      // Try the next candidate variant.
+    }
+  }
+
+  throw new GeminiApiError('Gemini returned an invalid JSON payload.', { payload: raw });
+};
+
 const extractCandidateResponse = (response: unknown): unknown => {
   if (!response || typeof response !== 'object') {
     return null;
@@ -178,24 +211,43 @@ const extractCandidateResponse = (response: unknown): unknown => {
     return null;
   }
 
-  const texts = parts
-    .map((part) => (typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : null))
-    .filter((item): item is string => item !== null);
+  let lastError: unknown = null;
 
-  if (texts.length === 0) {
-    return null;
+  for (const part of parts) {
+    const text = (part as { text?: unknown }).text;
+    if (typeof text === 'string') {
+      try {
+        const parsed = tryParseJson(text);
+        if (parsed) {
+          return parsed;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    const functionCall = (part as { functionCall?: unknown }).functionCall;
+    if (functionCall && typeof functionCall === 'object') {
+      try {
+        const args = (functionCall as { args?: unknown }).args;
+        const parsed = tryParseJson(args);
+        if (parsed) {
+          return parsed;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
   }
 
-  const rawText = texts.join('\n');
-
-  try {
-    return JSON.parse(rawText);
-  } catch (error) {
-    throw new GeminiApiError('Gemini returned an invalid JSON payload.', { payload: rawText });
+  if (lastError instanceof GeminiApiError) {
+    throw lastError;
   }
+
+  throw new GeminiApiError('Gemini response does not include a JSON object.', { payload: response });
 };
 
-export const generateGeminiAnalysis = async (
+export const analyzeWithGemini = async (
   request: GeminiAnalysisRequest,
 ): Promise<GeminiAnalysisResponse> => {
   const apiKey = ensureApiKey();
