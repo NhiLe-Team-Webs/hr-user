@@ -48,7 +48,10 @@ export class GeminiApiError extends Error {
 }
 
 const ensureApiKey = (): string => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey =
+    (import.meta as ImportMeta & {
+      env?: { VITE_GEMINI_API_KEY?: string };
+    }).env?.VITE_GEMINI_API_KEY ?? process.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
     throw new GeminiApiError('Gemini API key is not configured.');
   }
@@ -235,10 +238,50 @@ const extractCandidateResponse = (response: unknown): unknown => {
     });
   }
 
-  const [firstCandidate] = candidates as Array<{ content?: unknown }>;
+  const [firstCandidate] = candidates as Array<{
+    content?: unknown;
+    finishReason?: unknown;
+    safetyRatings?: unknown;
+  }>;
+
+  const promptFeedback = (response as { promptFeedback?: unknown }).promptFeedback;
+  const finishReason =
+    typeof firstCandidate?.finishReason === 'string'
+      ? (firstCandidate.finishReason as string)
+      : null;
+  const safetyRatings = firstCandidate?.safetyRatings;
+
   const parts = (firstCandidate?.content as { parts?: unknown } | undefined)?.parts;
   if (!Array.isArray(parts) || parts.length === 0) {
-    return null;
+    const detailSegments: string[] = [];
+
+    if (finishReason) {
+      detailSegments.push(`finish reason: ${finishReason}`);
+    }
+
+    if (
+      promptFeedback &&
+      typeof promptFeedback === 'object' &&
+      (promptFeedback as { blockReason?: unknown }).blockReason
+    ) {
+      const blockReason = (promptFeedback as { blockReason?: unknown }).blockReason;
+      if (typeof blockReason === 'string') {
+        detailSegments.push(`block reason: ${blockReason}`);
+      }
+    }
+
+    const detail = detailSegments.length > 0 ? ` (${detailSegments.join('; ')})` : '';
+
+    throw new GeminiApiError(
+      `Gemini response did not include any content parts${detail}.`,
+      {
+        payload: {
+          promptFeedback,
+          finishReason,
+          safetyRatings,
+        },
+      },
+    );
   }
 
   let lastError: unknown = null;
@@ -317,7 +360,7 @@ export const analyzeWithGemini = async (
     },
   } satisfies Record<string, unknown>;
 
-  if (import.meta.env.DEV) {
+  if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) {
     console.info('[Gemini] Submitting analysis request', {
       answerCount: filteredAnswers.length,
       language: request.language,
@@ -378,7 +421,7 @@ export const analyzeWithGemini = async (
 
   const json = await response.json();
 
-  if (import.meta.env.DEV) {
+  if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) {
     console.debug('[Gemini] API response', json);
   }
 
