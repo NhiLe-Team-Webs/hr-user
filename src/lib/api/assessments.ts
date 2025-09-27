@@ -388,7 +388,7 @@ interface LatestResultRow {
   assessment_id: string;
   total_score: number | null;
   strengths?: string[] | null;
-  insights?: string[] | null;
+  // insights?: string[] | null;
   summary?: { strengths?: string[] | null; summary?: string | null } | null;
   ai_summary?: string | null;
   analysis_model?: string | null;
@@ -402,9 +402,9 @@ const extractStrengthsFromResult = (row: LatestResultRow): string[] => {
     candidates.push(row.strengths);
   }
 
-  if (Array.isArray(row.insights)) {
-    candidates.push(row.insights);
-  }
+  // if (Array.isArray(row.insights)) {
+  //   candidates.push(row.insights);
+  // }
 
   const summaryStrengths = row.summary?.strengths;
   if (Array.isArray(summaryStrengths)) {
