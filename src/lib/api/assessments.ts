@@ -366,9 +366,11 @@ export const finaliseAssessmentAttempt = async (
       throw new Error('Khong the cap nhat trang thai bai danh gia.');
     }
 
+    const mappedAttempt = mapAssessmentAttempt(attemptData as AssessmentAttemptRow);
+
     return {
-      attempt: mapAssessmentAttempt(attemptData as AssessmentAttemptRow),
-      result: toAssessmentResult(analysis),
+      attempt: mappedAttempt,
+      result: { ...toAssessmentResult(analysis), completedAt: mappedAttempt.completedAt ?? nowIso },
       aiSummary: analysis.summary,
     } satisfies FinaliseAssessmentResult;
   } catch (error) {
@@ -388,36 +390,176 @@ interface LatestResultRow {
   assessment_id: string;
   overall_score?: number | string | null;
   total_score?: number | string | null;
-  strengths?: string[] | null;
-  summary?: { strengths?: string[] | null; summary?: string | null } | null;
+  strengths?: unknown;
+  weaknesses?: unknown;
+  summary?: unknown;
   ai_summary?: string | null;
   analysis_model?: string | null;
+  skill_scores?: unknown;
+  development_areas?: unknown;
+  development_suggestions?: unknown;
+  recommended_roles?: unknown;
+  completed_at?: string | null;
   created_at: string;
 }
 
-const extractStrengthsFromResult = (row: LatestResultRow): string[] => {
-  const candidates: unknown[] = [];
-
-  if (Array.isArray(row.strengths)) {
-    candidates.push(row.strengths);
-  }
-  const summaryStrengths = row.summary?.strengths;
-  if (Array.isArray(summaryStrengths)) {
-    candidates.push(summaryStrengths);
+const parseMaybeJsonObject = (value: unknown): Record<string, unknown> | null => {
+  if (!value) {
+    return null;
   }
 
-  const [firstValid] = candidates as string[][];
-  return firstValid ?? [];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch (error) {
+      console.warn('Failed to parse JSON summary payload:', error);
+      return null;
+    }
+  }
+
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return null;
 };
 
-const extractSummaryText = (row: LatestResultRow): string | null => {
-  const summaryField = row.summary?.summary;
-  if (typeof summaryField === 'string' && summaryField.trim().length > 0) {
-    return summaryField.trim();
+const getSummaryField = (
+  summaryPayload: Record<string, unknown> | null,
+  key: string,
+): unknown => (summaryPayload ? summaryPayload[key] : null);
+
+const normaliseScoreValue = (value: unknown): number | null => {
+  let numeric: number | null = null;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    numeric = value;
+  } else if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      numeric = parsed;
+    }
   }
 
-  if (typeof row.ai_summary === 'string' && row.ai_summary.trim().length > 0) {
-    return row.ai_summary.trim();
+  if (numeric === null) {
+    return null;
+  }
+
+  const clamped = Math.max(0, Math.min(100, numeric));
+  return Math.round(clamped * 100) / 100;
+};
+
+const normaliseStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return normaliseStringArray(parsed);
+    } catch {
+      return [trimmed];
+    }
+  }
+
+  return [];
+};
+
+const mergeUniqueStrings = (...groups: string[][]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  groups.forEach((group) => {
+    group.forEach((entry) => {
+      if (!seen.has(entry)) {
+        seen.add(entry);
+        result.push(entry);
+      }
+    });
+  });
+
+  return result;
+};
+
+const normaliseSkillScores = (value: unknown): AssessmentResult['skillScores'] => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return normaliseSkillScores(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) {
+        return null;
+      }
+
+      const record = entry as { name?: unknown; score?: unknown };
+      if (typeof record.name !== 'string') {
+        return null;
+      }
+
+      const score = normaliseScoreValue(record.score ?? null);
+      if (score === null) {
+        return null;
+      }
+
+      const name = record.name.trim();
+      if (!name) {
+        return null;
+      }
+
+      return { name, score };
+    })
+    .filter((entry): entry is { name: string; score: number } => entry !== null);
+};
+
+const resolveSummaryText = (
+  row: LatestResultRow,
+  summaryPayload: Record<string, unknown> | null,
+): string | null => {
+  const fromSummary = getSummaryField(summaryPayload, 'summary');
+  if (typeof fromSummary === 'string') {
+    const trimmed = fromSummary.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  if (typeof row.ai_summary === 'string') {
+    const trimmed = row.ai_summary.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
   }
 
   return null;
@@ -427,11 +569,16 @@ export interface LatestResultRecord {
   id: string;
   assessmentId: string;
   profileId: string;
-  totalScore: number | null;
+  score: number | null;
   strengths: string[];
+  developmentAreas: string[];
+  skillScores: AssessmentResult['skillScores'];
   summary: string | null;
+  recommendedRoles: string[];
+  developmentSuggestions: string[];
   analysisModel: string | null;
   createdAt: string;
+  completedAt: string | null;
 }
 
 export const getLatestResult = async (
@@ -450,10 +597,17 @@ export const getLatestResult = async (
         profile_id,
         assessment_id,
         overall_score,
+        total_score,
         strengths,
+        weaknesses,
         summary,
         ai_summary,
         analysis_model,
+        skill_scores,
+        development_areas,
+        development_suggestions,
+        recommended_roles,
+        completed_at,
         created_at
       `,
     )
@@ -475,24 +629,56 @@ export const getLatestResult = async (
   }
 
   const row = data as LatestResultRow;
-  const rawScoreValue = row.overall_score ?? row.total_score ?? null;
-  const rawScore =
-    typeof rawScoreValue === 'string'
-      ? Number.parseFloat(rawScoreValue)
-      : rawScoreValue;
-  const totalScore =
-    typeof rawScore === 'number' && Number.isFinite(rawScore)
-      ? Math.max(0, Math.min(100, Math.round(rawScore * 100) / 100))
-      : null;
+  const summaryPayload = parseMaybeJsonObject(row.summary ?? null);
+
+  const summaryScore = normaliseScoreValue(getSummaryField(summaryPayload, 'overall_score'));
+  const fallbackScore = normaliseScoreValue(row.overall_score ?? row.total_score ?? null);
+
+  const strengths = mergeUniqueStrings(
+    normaliseStringArray(row.strengths),
+    normaliseStringArray(getSummaryField(summaryPayload, 'strengths')),
+  );
+
+  const developmentAreas = mergeUniqueStrings(
+    normaliseStringArray(row.weaknesses ?? row.development_areas),
+    normaliseStringArray(
+      getSummaryField(summaryPayload, 'development_areas') ??
+        getSummaryField(summaryPayload, 'weaknesses'),
+    ),
+  );
+
+  const skillScores = (() => {
+    const fromSummary = normaliseSkillScores(getSummaryField(summaryPayload, 'skill_scores'));
+    if (fromSummary.length > 0) {
+      return fromSummary;
+    }
+
+    return normaliseSkillScores(row.skill_scores);
+  })();
+
+  const recommendedRoles = mergeUniqueStrings(
+    normaliseStringArray(row.recommended_roles),
+    normaliseStringArray(getSummaryField(summaryPayload, 'recommended_roles')),
+  );
+
+  const developmentSuggestions = mergeUniqueStrings(
+    normaliseStringArray(row.development_suggestions),
+    normaliseStringArray(getSummaryField(summaryPayload, 'development_suggestions')),
+  );
 
   return {
     id: row.id,
     assessmentId: row.assessment_id,
     profileId: row.profile_id,
-    totalScore,
-    strengths: extractStrengthsFromResult(row),
-    summary: extractSummaryText(row),
+    score: summaryScore ?? fallbackScore,
+    strengths,
+    developmentAreas,
+    skillScores,
+    summary: resolveSummaryText(row, summaryPayload),
+    recommendedRoles,
+    developmentSuggestions,
     analysisModel: typeof row.analysis_model === 'string' ? row.analysis_model : null,
     createdAt: row.created_at,
+    completedAt: row.completed_at ?? null,
   } satisfies LatestResultRecord;
 };
