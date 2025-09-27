@@ -353,12 +353,20 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     return undefined;
   }, [timeLeft, finishAssessment]);
 
+  const isAttemptSubmitted = Boolean(activeAttempt?.submittedAt);
+
   useEffect(() => {
+    if (isFinalising || isAttemptSubmitted) {
+      return;
+    }
+
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setTabViolations((prev) => prev + 1);
-        setIsAlertOpen(true);
+      if (!document.hidden || isFinalising || isAttemptSubmitted) {
+        return;
       }
+
+      setTabViolations((prev) => prev + 1);
+      setIsAlertOpen(true);
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -366,7 +374,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [role]);
+  }, [isFinalising, isAttemptSubmitted]);
 
   useEffect(() => {
     if (tabViolations >= 3) {
@@ -450,27 +458,6 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     const secs = seconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setTabViolations(prev => prev + 1);
-        setIsAlertOpen(true);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [role]);
-
-  useEffect(() => {
-    if (tabViolations >= 3) {
-      void finishAssessment();
-    }
-  }, [tabViolations, finishAssessment]);
 
   const canRetryAnalysis = Boolean(finalisePayloadRef.current);
 
