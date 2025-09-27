@@ -1,4 +1,4 @@
-﻿import { supabase } from '../supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 
 interface SupabaseRoleData {
   target_role: string;

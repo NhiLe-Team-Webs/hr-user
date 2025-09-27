@@ -1,5 +1,5 @@
-﻿import { supabase } from '../supabaseClient';
-import type { Question } from '../types/question';
+import { supabase } from '@/lib/supabaseClient';
+import type { Question } from '@/types/question';
 import type { AssessmentAttempt } from '@/types/assessment';
 import {
   mapSupabaseQuestion,
@@ -7,6 +7,7 @@ import {
   type SupabaseQuestionData,
 } from './questionMappers';
 import type { AnswerInput, AnswerRow, AssessmentAttemptRow } from './types';
+import { mapAssessmentAttempt } from './assessmentMappers';
 
 interface AssessmentPayload {
   id: string;
@@ -21,18 +22,6 @@ interface AssessmentPayload {
     options: Array<{ id: string; option_text: string; is_correct: boolean }>;
   }>;
 }
-
-const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => ({
-  id: row.id,
-  status: row.status,
-  answeredCount: row.answered_count ?? 0,
-  totalQuestions: row.total_questions ?? 0,
-  progressPercent: Number(row.progress_percent ?? 0),
-  startedAt: row.started_at,
-  submittedAt: row.submitted_at,
-  completedAt: row.completed_at,
-  lastActivityAt: row.last_activity_at,
-});
 
 export const getAssessment = async (role: string) => {
   const { data, error } = await supabase

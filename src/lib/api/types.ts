@@ -1,4 +1,4 @@
-﻿import type { Question } from '../types/question';
+import type { Question } from '@/types/question';
 import type { AssessmentAttempt } from '@/types/assessment';
 
 export interface ProfileUpdates {

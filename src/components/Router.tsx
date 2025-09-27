@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
@@ -14,6 +14,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
+import { resolveAssessmentState } from '@/lib/api';
+import { supabase } from '@/lib/supabaseClient';
 
 const FullScreenLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -94,12 +96,77 @@ const Router = () => {
   );
 };
 
+type ResolutionStatus = 'idle' | 'loading' | 'ready';
+
+const useAssessmentResolution = (userId: string | undefined) => {
+  const { setSelectedRole, setActiveAttempt, setAssessmentResult } = useAssessment();
+  const [status, setStatus] = useState<ResolutionStatus>(userId ? 'loading' : 'idle');
+  const [nextRoute, setNextRoute] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!userId) {
+      setStatus('idle');
+      setNextRoute(null);
+      setSelectedRole(null);
+      setActiveAttempt(null);
+      setAssessmentResult(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setStatus('loading');
+    setNextRoute(null);
+
+    const resolve = async () => {
+      try {
+        const resolution = await resolveAssessmentState({ profileId: userId, client: supabase });
+
+        if (!isMounted) {
+          return;
+        }
+
+        setSelectedRole(resolution.selectedRole);
+        setActiveAttempt(resolution.activeAttempt);
+        setAssessmentResult(resolution.assessmentResult);
+        setNextRoute(resolution.nextRoute);
+        setStatus('ready');
+      } catch (error) {
+        console.error('Failed to resolve assessment state:', error);
+        if (!isMounted) {
+          return;
+        }
+        setSelectedRole(null);
+        setActiveAttempt(null);
+        setAssessmentResult(null);
+        setNextRoute('/role-selection');
+        setStatus('ready');
+      }
+    };
+
+    void resolve();
+
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  return { status, nextRoute };
+};
+
 const LandingRoute = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { status, nextRoute } = useAssessmentResolution(user?.id);
 
   if (user) {
-    return <Navigate to="/result" replace />;
+    if (status !== 'ready' || !nextRoute) {
+      return <FullScreenLoader />;
+    }
+    return <Navigate to={nextRoute} replace />;
   }
 
   return (
@@ -113,9 +180,13 @@ const LandingRoute = () => {
 
 const LoginRoute = () => {
   const { user } = useAuth();
+  const { status, nextRoute } = useAssessmentResolution(user?.id);
 
   if (user) {
-    return <Navigate to="/result" replace />;
+    if (status !== 'ready' || !nextRoute) {
+      return <FullScreenLoader />;
+    }
+    return <Navigate to={nextRoute} replace />;
   }
 
   return <LoginScreen />;

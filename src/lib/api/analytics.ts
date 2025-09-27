@@ -1,4 +1,4 @@
-﻿import { supabase } from '../supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 
 interface SupabaseAnalyticsUser {
   id: string;
