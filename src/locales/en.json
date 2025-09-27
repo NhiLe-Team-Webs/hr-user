@@ -102,7 +102,8 @@
     "aiErrorTitle": "We couldn’t generate your result",
     "aiErrorDescription": "An error occurred while creating your AI summary. Please try again.",
     "aiRetryButton": "Retry analysis",
-    "aiDismissButton": "Close"
+    "aiDismissButton": "Close",
+    "aiRateLimitError": "The AI service is receiving too many requests. Please wait a moment and try again."
   },
   "preAssessmentScreen": {
     "title": "Are you ready for the test?",

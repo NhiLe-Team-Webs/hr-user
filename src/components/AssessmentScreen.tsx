@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
+import { GeminiApiError } from '../lib/api/gemini';
 import {
   getAssessment,
   upsertAnswer,
@@ -54,6 +55,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   const [isFinalising, setIsFinalising] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const finalisePayloadRef = useRef<FinaliseAssessmentOptions | null>(null);
+  const isMountedRef = useRef(true);
 
   const ensureAnswerPersisted = useCallback(
     async (questionIndex: number, overrideRawValue?: AnswerValue) => {
@@ -129,6 +131,13 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     await Promise.all(questions.map((_, index) => ensureAnswerPersisted(index)));
   }, [activeAttempt, questions, ensureAnswerPersisted]);
 
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      finalisePayloadRef.current = null;
+    };
+  }, []);
+
   const runAiAnalysis = useCallback(async () => {
     const payload = finalisePayloadRef.current;
     if (!payload) {
@@ -136,10 +145,21 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     }
 
     const result = await finaliseAssessmentAttempt(payload);
+    finalisePayloadRef.current = null;
+
     updateActiveAttempt(result.attempt);
+
+    if (!isMountedRef.current) {
+      return;
+    }
 
     try {
       const latest = await getLatestResult(payload.profileId, payload.assessmentId);
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
       if (latest) {
         setAssessmentResult({
           score:
@@ -153,34 +173,65 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
       }
     } catch (error) {
       console.error('Failed to refresh latest assessment result:', error);
-      setAssessmentResult(result.result);
+      if (isMountedRef.current) {
+        setAssessmentResult(result.result);
+      }
     }
 
-    finalisePayloadRef.current = null;
-    onFinish();
+    if (isMountedRef.current) {
+      onFinish();
+    }
   }, [onFinish, setAssessmentResult, updateActiveAttempt]);
+
+  const getAiErrorMessage = useCallback(
+    (error: unknown) => {
+      if (error instanceof GeminiApiError) {
+        if (error.status === 429) {
+          return t('assessmentScreen.aiRateLimitError');
+        }
+        return t('assessmentScreen.aiErrorDescription');
+      }
+
+      if (error instanceof Error && error.message) {
+        return error.message;
+      }
+
+      return t('assessmentScreen.aiErrorDescription');
+    },
+    [t],
+  );
 
   const retryAnalysis = useCallback(async () => {
     if (!finalisePayloadRef.current) {
-      setSubmissionError(null);
+      if (isMountedRef.current) {
+        setSubmissionError(null);
+      }
       return;
     }
 
-    setSubmissionError(null);
-    setIsFinalising(true);
+    if (isMountedRef.current) {
+      setSubmissionError(null);
+      setIsFinalising(true);
+    }
+
     try {
       await runAiAnalysis();
     } catch (error) {
       console.error('Failed to retry AI analysis:', error);
-      setSubmissionError(t('assessmentScreen.aiErrorDescription'));
+      if (isMountedRef.current) {
+        setSubmissionError(getAiErrorMessage(error));
+      }
       updateActiveAttempt({
         aiStatus: 'failed',
         lastAiError: error instanceof Error ? error.message : null,
       });
     } finally {
-      setIsFinalising(false);
+      if (isMountedRef.current) {
+        setIsFinalising(false);
+      }
     }
-  }, [runAiAnalysis, t, updateActiveAttempt]);
+  }, [getAiErrorMessage, runAiAnalysis, updateActiveAttempt]);
+
 
   const finishAssessment = useCallback(async () => {
     if (!activeAttempt || !assessment || !assessment.id || !user) {
@@ -189,8 +240,11 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     }
 
     await persistAllAnswers();
-    setSubmissionError(null);
-    setIsFinalising(true);
+
+    if (isMountedRef.current) {
+      setSubmissionError(null);
+      setIsFinalising(true);
+    }
 
     try {
       const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
@@ -254,28 +308,33 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
       await runAiAnalysis();
     } catch (error) {
       console.error('Failed to finalise assessment attempt:', error);
-      setSubmissionError(t('assessmentScreen.aiErrorDescription'));
+      if (isMountedRef.current) {
+        setSubmissionError(getAiErrorMessage(error));
+      }
       updateActiveAttempt({
         aiStatus: 'failed',
         lastAiError: error instanceof Error ? error.message : null,
       });
     } finally {
-      setIsFinalising(false);
+      if (isMountedRef.current) {
+        setIsFinalising(false);
+      }
     }
   }, [
     activeAttempt,
     assessment,
+    getAiErrorMessage,
     lang,
     onFinish,
     persistAllAnswers,
     questions,
     role.name,
     runAiAnalysis,
-    t,
     updateActiveAttempt,
     user,
     userAnswers,
   ]);
+
 
   // Timer logic
   useEffect(() => {

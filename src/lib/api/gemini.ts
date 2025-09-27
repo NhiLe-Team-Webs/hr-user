@@ -287,27 +287,74 @@ export const analyzeWithGemini = async (
     },
   } satisfies Record<string, unknown>;
 
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  if (import.meta.env.DEV) {
+    console.info('[Gemini] Submitting analysis request', {
+      answerCount: filteredAnswers.length,
+      language: request.language,
+      role: request.role,
+    });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    console.error('[Gemini] Network error while calling API', error);
+    throw new GeminiApiError('Gemini API network error.', { payload: error });
+  }
 
   if (!response.ok) {
     let payload: unknown = null;
     try {
       payload = await response.json();
-    } catch (error) {
-      payload = await response.text();
+    } catch (parseJsonError) {
+      try {
+        payload = await response.text();
+      } catch (parseTextError) {
+        payload = null;
+      }
     }
+
+    const errorDetails = {
+      status: response.status,
+      statusText: response.statusText,
+      payload,
+      headers: {
+        'x-request-id': response.headers.get('x-request-id'),
+        'retry-after': response.headers.get('retry-after'),
+        'x-ratelimit-limit': response.headers.get('x-ratelimit-limit'),
+        'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining'),
+        'x-ratelimit-reset': response.headers.get('x-ratelimit-reset'),
+      },
+    } as const;
+
+    console.error('[Gemini] API request failed', errorDetails);
+
+    if (response.status === 429) {
+      throw new GeminiApiError(
+        'Gemini API rate limit exceeded. Please wait a moment and try again.',
+        { status: response.status, payload },
+      );
+    }
+
     throw new GeminiApiError('Gemini API request failed.', { status: response.status, payload });
   }
 
   const json = await response.json();
+
+  if (import.meta.env.DEV) {
+    console.debug('[Gemini] API response', json);
+  }
+
   const parsed = extractCandidateResponse(json);
   return parseGeminiPayload(parsed);
+
 };
 
 export const toAssessmentResult = (analysis: GeminiAnalysisResponse): AssessmentResult => ({
