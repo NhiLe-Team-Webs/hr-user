@@ -488,7 +488,17 @@ export const analyzeWithGemini = async (
     },
   } satisfies Record<string, unknown>;
 
-  const isDev = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+  const importMetaEnv = (import.meta as ImportMeta & {
+    env?: Record<string, unknown>;
+  }).env;
+  const isDev = Boolean(importMetaEnv?.DEV);
+  const debugLogsEnabled =
+    isDev ||
+    `${(importMetaEnv?.VITE_GEMINI_DEBUG_LOGS ?? (typeof process !== 'undefined'
+      ? (process.env as Record<string, string | undefined>)?.VITE_GEMINI_DEBUG_LOGS
+      : undefined)) ?? ''}`
+      .toString()
+      .toLowerCase() === 'true';
 
   if (truncated) {
     console.warn('[Gemini] Prompt truncated to respect length limit', {
@@ -499,7 +509,20 @@ export const analyzeWithGemini = async (
       basePromptLength,
       maxPromptLength: MAX_PROMPT_CHAR_LENGTH,
     });
-  } else if (isDev) {
+  }
+
+  if (debugLogsEnabled) {
+    console.info('[Gemini] Submitting analysis request', {
+      answerCount: filteredAnswers.length,
+      language: request.language,
+      role: request.role,
+      promptLength,
+      basePromptLength,
+      maxPromptLength: MAX_PROMPT_CHAR_LENGTH,
+      truncated,
+    });
+    console.debug('[Gemini] Prompt text', prompt);
+  } else if (!truncated && isDev) {
     console.info('[Gemini] Submitting analysis request', {
       answerCount: filteredAnswers.length,
       language: request.language,
@@ -562,12 +585,18 @@ export const analyzeWithGemini = async (
 
   const json = await response.json();
 
-  if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) {
+  if (debugLogsEnabled) {
     console.debug('[Gemini] API response', json);
   }
 
   const parsed = extractCandidateResponse(json);
-  return parseGeminiPayload(parsed);
+  const result = parseGeminiPayload(parsed);
+
+  if (debugLogsEnabled) {
+    console.debug('[Gemini] Parsed analysis payload', result);
+  }
+
+  return result;
 
 };
 
