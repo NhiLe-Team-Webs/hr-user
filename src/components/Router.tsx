@@ -9,7 +9,6 @@ import ResultScreen from './ResultScreen';
 import TryoutScreen from './TryoutScreen';
 import NotFound from '../pages/NotFound';
 import PreAssessmentScreen from './PreAssessmentScreen';
-import type { AssessmentResult } from '@/types/assessment';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
@@ -226,27 +225,16 @@ const PreAssessmentRoute = () => {
 
 const AssessmentRoute = () => {
   const navigate = useNavigate();
-  const { selectedRole, setAssessmentResult } = useAssessment();
-  const { t } = useLanguage();
+  const { selectedRole } = useAssessment();
 
   if (!selectedRole) {
     return <Navigate to="/role-selection" replace />;
   }
 
-  const fallbackResult: AssessmentResult = {
-    score: 80,
-    strengths: [
-      t('strengths.strength1'),
-      t('strengths.strength3'),
-      t('strengths.strength5'),
-    ],
-  };
-
   return (
     <AssessmentScreen
       role={selectedRole}
       onFinish={() => {
-        setAssessmentResult(fallbackResult);
         navigate('/result');
       }}
     />

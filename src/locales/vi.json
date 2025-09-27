@@ -96,7 +96,13 @@
     "tabWarningDescription": "Bạn đã chuyển tab trong khi làm bài. Bài kiểm tra của bạn sẽ bị hủy nếu bạn vi phạm thêm {remaining} lần nữa.",
     "tabWarningAction": "Quay lại bài làm",
     "noQuestions": "Không có câu hỏi nào.",
-    "errorFetching": "Không thể tải dữ liệu bài đánh giá. Vui lòng thử lại sau."
+    "errorFetching": "Không thể tải dữ liệu bài đánh giá. Vui lòng thử lại sau.",
+    "aiProcessingTitle": "Đang phân tích câu trả lời...",
+    "aiProcessingDescription": "Hệ thống đang tạo bản tóm tắt cá nhân hoá từ câu trả lời của bạn. Quá trình này thường chỉ mất dưới một phút.",
+    "aiErrorTitle": "Không thể tạo kết quả",
+    "aiErrorDescription": "Đã xảy ra lỗi khi phân tích bằng AI. Vui lòng thử lại.",
+    "aiRetryButton": "Thử phân tích lại",
+    "aiDismissButton": "Đóng"
   },
   "preAssessmentScreen": {
     "title": "Bạn đã sẵn sàng cho bài kiểm tra chưa?",
