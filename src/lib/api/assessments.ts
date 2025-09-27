@@ -1,6 +1,12 @@
 import { supabase } from '@/lib/supabaseClient';
 import type { Question } from '@/types/question';
-import type { AssessmentAttempt } from '@/types/assessment';
+import type { AssessmentAttempt, AssessmentResult } from '@/types/assessment';
+import {
+  generateGeminiAnalysis,
+  GEMINI_MODEL_NAME,
+  toAssessmentResult,
+  type GeminiAnswerPayload,
+} from './gemini';
 import {
   mapSupabaseQuestion,
   normaliseQuestionFormat,
@@ -252,6 +258,7 @@ export const submitAssessmentAttempt = async (attemptId: string): Promise<Assess
       status: 'awaiting_ai',
       submitted_at: nowIso,
       last_activity_at: nowIso,
+      last_ai_error: null,
     })
     .eq('id', attemptId)
     .select()
@@ -263,4 +270,108 @@ export const submitAssessmentAttempt = async (attemptId: string): Promise<Assess
   }
 
   return mapAssessmentAttempt(data as AssessmentAttemptRow);
+};
+
+const truncateErrorMessage = (value: string, maxLength = 500) => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 1)}…`;
+};
+
+const logAiFailure = async (attemptId: string, message: string) => {
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from('assessment_attempts')
+    .update({
+      last_ai_error: truncateErrorMessage(message),
+      last_activity_at: nowIso,
+    })
+    .eq('id', attemptId);
+};
+
+export interface FinaliseAssessmentOptions {
+  attemptId: string;
+  assessmentId: string;
+  profileId: string;
+  role: string;
+  candidateName: string | null;
+  language: 'vi' | 'en';
+  answers: GeminiAnswerPayload[];
+}
+
+export interface FinaliseAssessmentResult {
+  attempt: AssessmentAttempt;
+  result: AssessmentResult;
+  aiSummary: string;
+}
+
+export const finaliseAssessmentAttempt = async (
+  payload: FinaliseAssessmentOptions,
+): Promise<FinaliseAssessmentResult> => {
+  try {
+    const analysis = await generateGeminiAnalysis({
+      role: payload.role,
+      candidateName: payload.candidateName,
+      language: payload.language,
+      answers: payload.answers,
+    });
+
+    const summary = {
+      strengths: analysis.strengths,
+      development_areas: analysis.developmentAreas,
+      skill_scores: analysis.skillScores,
+      overall_score: analysis.overallScore,
+      summary: analysis.summary,
+    } satisfies Record<string, unknown>;
+
+    const { error: resultError } = await supabase
+      .from('results')
+      .insert({
+        profile_id: payload.profileId,
+        assessment_id: payload.assessmentId,
+        total_score: analysis.overallScore,
+        strengths: analysis.strengths,
+        summary,
+        ai_summary: analysis.summary,
+        analysis_model: GEMINI_MODEL_NAME,
+      });
+
+    if (resultError) {
+      console.error('Failed to persist assessment result:', resultError);
+      throw new Error('Khong the luu ket qua danh gia.');
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: attemptData, error: attemptError } = await supabase
+      .from('assessment_attempts')
+      .update({
+        status: 'completed',
+        completed_at: nowIso,
+        last_activity_at: nowIso,
+        last_ai_error: null,
+      })
+      .eq('id', payload.attemptId)
+      .select()
+      .single();
+
+    if (attemptError) {
+      console.error('Failed to update attempt after AI analysis:', attemptError);
+      throw new Error('Khong the cap nhat trang thai bai danh gia.');
+    }
+
+    return {
+      attempt: mapAssessmentAttempt(attemptData as AssessmentAttemptRow),
+      result: toAssessmentResult(analysis),
+      aiSummary: analysis.summary,
+    } satisfies FinaliseAssessmentResult;
+  } catch (error) {
+    console.error('Failed to finalise assessment attempt with AI:', error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Khong the phan tich bai danh gia voi tri tue nhan tao.';
+    await logAiFailure(payload.attemptId, message);
+    throw error;
+  }
 };

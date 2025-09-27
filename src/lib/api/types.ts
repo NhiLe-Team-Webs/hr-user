@@ -55,6 +55,7 @@ export interface AssessmentAttemptRow {
   submitted_at: string | null;
   completed_at: string | null;
   last_activity_at: string | null;
+  last_ai_error?: string | null;
 }
 
 export type QuestionsByRole = Record<string, Question[]>;

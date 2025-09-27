@@ -12,5 +12,8 @@ export {
   ensureProfile,
   startAssessmentAttempt,
   submitAssessmentAttempt,
+  finaliseAssessmentAttempt,
+  type FinaliseAssessmentOptions,
+  type FinaliseAssessmentResult,
 } from './assessments';
 export { resolveAssessmentState, type AssessmentResolution } from './resolveAssessmentState';

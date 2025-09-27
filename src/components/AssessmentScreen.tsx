@@ -1,16 +1,24 @@
 // src/components/AssessmentScreen.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
-import { getAssessment, upsertAnswer, submitAssessmentAttempt } from '../lib/api';
-import { Role, UserAnswers, Question, AnswerValue } from '../types/assessment';
+import {
+  getAssessment,
+  upsertAnswer,
+  submitAssessmentAttempt,
+  finaliseAssessmentAttempt,
+  type FinaliseAssessmentOptions,
+} from '../lib/api';
+import { Role, UserAnswers, Question, AnswerValue, Assessment } from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAssessment } from '@/contexts/AssessmentContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -24,9 +32,10 @@ interface AssessmentScreenProps {
 }
 
 const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) => {
-  const { activeAttempt, updateActiveAttempt } = useAssessment();
-  const { t } = useLanguage();
-  const [assessment, setAssessment] = useState(null);
+  const { activeAttempt, updateActiveAttempt, setAssessmentResult } = useAssessment();
+  const { user } = useAuth();
+  const { lang, t } = useLanguage();
+  const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
@@ -41,6 +50,9 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   const [timeLeft, setTimeLeft] = useState(0);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
+  const [isFinalising, setIsFinalising] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const finalisePayloadRef = useRef<FinaliseAssessmentOptions | null>(null);
 
   const ensureAnswerPersisted = useCallback(
     async (questionIndex: number, overrideRawValue?: AnswerValue) => {
@@ -116,20 +128,127 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     await Promise.all(questions.map((_, index) => ensureAnswerPersisted(index)));
   }, [activeAttempt, questions, ensureAnswerPersisted]);
 
+  const runAiAnalysis = useCallback(async () => {
+    const payload = finalisePayloadRef.current;
+    if (!payload) {
+      throw new Error('Khong the phan tich bai lam do thieu du lieu.');
+    }
+
+    const result = await finaliseAssessmentAttempt(payload);
+    updateActiveAttempt(result.attempt);
+    setAssessmentResult(result.result);
+    finalisePayloadRef.current = null;
+    onFinish();
+  }, [onFinish, setAssessmentResult, updateActiveAttempt]);
+
+  const retryAnalysis = useCallback(async () => {
+    if (!finalisePayloadRef.current) {
+      setSubmissionError(null);
+      return;
+    }
+
+    setSubmissionError(null);
+    setIsFinalising(true);
+    try {
+      await runAiAnalysis();
+    } catch (error) {
+      console.error('Failed to retry AI analysis:', error);
+      setSubmissionError(t('assessmentScreen.aiErrorDescription'));
+    } finally {
+      setIsFinalising(false);
+    }
+  }, [runAiAnalysis, t]);
+
   const finishAssessment = useCallback(async () => {
-    if (!activeAttempt) {
+    if (!activeAttempt || !assessment || !assessment.id || !user) {
       onFinish();
       return;
     }
+
     await persistAllAnswers();
+    setSubmissionError(null);
+    setIsFinalising(true);
+
     try {
       const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
       updateActiveAttempt(updatedAttempt);
+
+      const answersForGemini = questions
+        .map<FinaliseAssessmentOptions['answers'][number] | null>((question, index) => {
+          const rawValue = userAnswers[index];
+          if (typeof rawValue === 'undefined' || rawValue === null) {
+            return null;
+          }
+
+          const common = {
+            questionId: question.id,
+            questionText: question.text,
+            format: question.format,
+            options: question.options?.map((option) => option.text ?? option.optionText ?? '') ?? [],
+          } satisfies Omit<FinaliseAssessmentOptions['answers'][number], 'answerText'>;
+
+          if (question.format === 'multiple_choice') {
+            const optionIndex = Number(rawValue);
+            const option = question.options?.[optionIndex];
+            if (!option) {
+              return null;
+            }
+            return {
+              ...common,
+              answerText: option.text ?? option.optionText ?? '',
+            };
+          }
+
+          const textValue = String(rawValue).trim();
+          if (!textValue) {
+            return null;
+          }
+
+          return {
+            ...common,
+            answerText: textValue,
+          };
+        })
+        .filter(
+          (item): item is FinaliseAssessmentOptions['answers'][number] => item !== null,
+        );
+
+      const rawName =
+        (typeof user.user_metadata?.full_name === 'string'
+          ? user.user_metadata.full_name
+          : undefined) ?? user.email ?? null;
+
+      finalisePayloadRef.current = {
+        attemptId: updatedAttempt.id,
+        assessmentId: assessment.id,
+        profileId: user.id,
+        role: role.name,
+        candidateName: rawName ? rawName.trim() : null,
+        language: lang,
+        answers: answersForGemini,
+      } satisfies FinaliseAssessmentOptions;
+
+      await runAiAnalysis();
     } catch (error) {
-      console.error('Failed to submit attempt:', error);
+      console.error('Failed to finalise assessment attempt:', error);
+      setSubmissionError(t('assessmentScreen.aiErrorDescription'));
+    } finally {
+      setIsFinalising(false);
     }
-    onFinish();
-  }, [activeAttempt, persistAllAnswers, updateActiveAttempt, onFinish]);
+  }, [
+    activeAttempt,
+    assessment,
+    lang,
+    onFinish,
+    persistAllAnswers,
+    questions,
+    role.name,
+    runAiAnalysis,
+    t,
+    updateActiveAttempt,
+    user,
+    userAnswers,
+  ]);
 
   // Timer logic
   useEffect(() => {
@@ -267,6 +386,8 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     }
   }, [tabViolations, finishAssessment]);
 
+  const canRetryAnalysis = Boolean(finalisePayloadRef.current);
+
   const renderQuestion = () => {
     if (!questions || questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
     const question = questions[currentQuestionIndex];
@@ -302,8 +423,14 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                     ${userAnswers[currentQuestionIndex] === index
                         ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
                         : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
-                    }`}
-                    onClick={() => handleOptionSelect(index)}
+                    } ${isFinalising ? 'pointer-events-none opacity-60' : ''}`}
+                    onClick={() => {
+                      if (!isFinalising) {
+                        handleOptionSelect(index);
+                      }
+                    }}
+                    aria-disabled={isFinalising}
+                    data-disabled={isFinalising ? 'true' : undefined}
                   >
                     <span className="flex-1 text-left text-sm">{option.text}</span>
                   </div>
@@ -315,9 +442,22 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           ) : (
             <Textarea
               placeholder={t('assessmentScreen.typeYourAnswer')}
-              value={typeof userAnswers[currentQuestionIndex] === 'string' ? (userAnswers[currentQuestionIndex] as string) : ''}
-              onChange={(e) => saveAnswer(currentQuestionIndex, e.target.value)}
-              onBlur={() => void ensureAnswerPersisted(currentQuestionIndex)}
+              value={
+                typeof userAnswers[currentQuestionIndex] === 'string'
+                  ? (userAnswers[currentQuestionIndex] as string)
+                  : ''
+              }
+              onChange={(event) => {
+                if (!isFinalising) {
+                  saveAnswer(currentQuestionIndex, event.target.value);
+                }
+              }}
+              onBlur={() => {
+                if (!isFinalising) {
+                  void ensureAnswerPersisted(currentQuestionIndex);
+                }
+              }}
+              disabled={isFinalising}
               className="min-h-[150px] p-4 border-2 rounded-2xl focus:border-blue-500 focus:ring-blue-500 transition-all duration-300"
             />
           )}
@@ -345,141 +485,189 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     );
   }
   return (
-    <motion.div
-      key="assessment"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.5 }}
-      className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-purple-50 flex flex-col"
-    >
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-6">
-          {/* Header */}
-          <motion.div
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="bg-white rounded-2xl shadow-lg p-6 mb-6"
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold text-gray-800">
-                {t('assessmentScreen.assessmentTitle')}: {role.name}
-              </h2>
-              {/* Timer Display */}
-              <motion.div
-                className="flex items-center gap-2 text-lg font-semibold text-gray-800"
-                animate={{
-                  scale: timeLeft <= 300 ? [1, 1.1, 1] : 1,
-                  color: timeLeft <= 300 ? '#EA3323' : '#374151',
-                }}
-                transition={{
-                  repeat: timeLeft <= 300 ? Infinity : 0,
-                  duration: 0.8,
-                }}
-              >
-                <Clock className="w-5 h-5" />
-                <span>{formatTime(timeLeft)}</span>
-              </motion.div>
-            </div>
-            
-            {/* Progress Bar */}
-            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-              <motion.div
-                className="bg-gradient-to-r from-green-400 to-blue-500 h-3 rounded-full"
-                initial={{ width: 0 }}
-                animate={{
-                  width: `${((currentQuestionIndex + 1) / questions.length) * 100}%`
-                }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
-              />
-            </div>
-            <div className="flex justify-between items-center mt-2 text-sm text-gray-600">
-              <span>
-                {t('assessmentScreen.questionProgress', {
-                  current: currentQuestionIndex + 1,
-                  total: questions.length,
-                })}
-              </span>
-              <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
-            </div>
-          </motion.div>
-
-          {/* Question Card */}
-          <motion.div
-            className="bg-white rounded-3xl shadow-xl p-8"
-          >
-            {renderQuestion()}
-          </motion.div>
+    <>
+      {isFinalising && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-2xl bg-white px-8 py-6 text-center shadow-2xl">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-muted border-t-primary" />
+            <h3 className="text-lg font-semibold text-foreground">
+              {t('assessmentScreen.aiProcessingTitle')}
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t('assessmentScreen.aiProcessingDescription')}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Fixed Navigation */}
       <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="sticky bottom-0 bg-white shadow-lg border-t"
+        key="assessment"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.5 }}
+        className="flex min-h-screen flex-col bg-gradient-to-br from-green-50 via-blue-50 to-purple-50"
       >
-        <div className="max-w-4xl mx-auto p-4 flex justify-between items-center">
-          <Button
-            onClick={() => void navigateQuestion(-1)}
-            disabled={currentQuestionIndex === 0}
-            variant="outline"
-            className="flex items-center gap-2 px-6 py-3 rounded-xl"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span>{t('assessmentScreen.previousBtn')}</span>
-          </Button>
-          
-          {currentQuestionIndex === questions.length - 1 ? (
-            <Button
-              onClick={() => void finishAssessment()}
-              disabled={!hasAnsweredCurrent}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
-                hasAnsweredCurrent 
-                  ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700' 
-                  : 'bg-gray-300'
-              }`}
+        <div className="flex-1 overflow-auto">
+          <div className="mx-auto max-w-4xl p-6">
+            {/* Header */}
+            <motion.div
+              initial={{ y: -20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="mb-6 rounded-2xl bg-white p-6 shadow-lg"
             >
-              <span>{t('assessmentScreen.finishBtn')}</span>
-              <CheckCircle className="w-5 h-5" />
-            </Button>
-          ) : (
-            <Button
-              onClick={() => void navigateQuestion(1)}
-              disabled={!hasAnsweredCurrent}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-colors ${
-                hasAnsweredCurrent 
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700' 
-                  : 'bg-gray-300'
-              }`}
-            >
-              <span>{t('assessmentScreen.nextBtn')}</span>
-              <ArrowRight className="w-5 h-5" />
-            </Button>
-          )}
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-gray-800">
+                  {t('assessmentScreen.assessmentTitle')}: {role.name}
+                </h2>
+                {/* Timer Display */}
+                <motion.div
+                  className="flex items-center gap-2 text-lg font-semibold text-gray-800"
+                  animate={{
+                    scale: timeLeft <= 300 ? [1, 1.1, 1] : 1,
+                    color: timeLeft <= 300 ? '#EA3323' : '#374151',
+                  }}
+                  transition={{
+                    repeat: timeLeft <= 300 ? Infinity : 0,
+                    duration: 0.8,
+                  }}
+                >
+                  <Clock className="h-5 w-5" />
+                  <span>{formatTime(timeLeft)}</span>
+                </motion.div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="h-3 w-full overflow-hidden rounded-full bg-gray-200">
+                <motion.div
+                  className="h-3 rounded-full bg-gradient-to-r from-green-400 to-blue-500"
+                  initial={{ width: 0 }}
+                  animate={{
+                    width: `${((currentQuestionIndex + 1) / questions.length) * 100}%`,
+                  }}
+                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-between text-sm text-gray-600">
+                <span>
+                  {t('assessmentScreen.questionProgress', {
+                    current: currentQuestionIndex + 1,
+                    total: questions.length,
+                  })}
+                </span>
+                <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
+              </div>
+            </motion.div>
+
+            {/* Question Card */}
+            <motion.div className="rounded-3xl bg-white p-8 shadow-xl">
+              {renderQuestion()}
+            </motion.div>
+          </div>
         </div>
+
+        {/* Fixed Navigation */}
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className="sticky bottom-0 border-t bg-white shadow-lg"
+        >
+          <div className="mx-auto flex max-w-4xl items-center justify-between p-4">
+            <Button
+              onClick={() => void navigateQuestion(-1)}
+              disabled={currentQuestionIndex === 0 || isFinalising}
+              variant="outline"
+              className="flex items-center gap-2 rounded-xl px-6 py-3"
+            >
+              <ArrowLeft className="h-5 w-5" />
+              <span>{t('assessmentScreen.previousBtn')}</span>
+            </Button>
+
+            {currentQuestionIndex === questions.length - 1 ? (
+              <Button
+                onClick={() => void finishAssessment()}
+                disabled={!hasAnsweredCurrent || isFinalising}
+                className={`flex items-center gap-2 rounded-xl px-6 py-3 transition-colors ${
+                  hasAnsweredCurrent
+                    ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
+                    : 'bg-gray-300'
+                }`}
+              >
+                <span>{t('assessmentScreen.finishBtn')}</span>
+                <CheckCircle className="h-5 w-5" />
+              </Button>
+            ) : (
+              <Button
+                onClick={() => void navigateQuestion(1)}
+                disabled={!hasAnsweredCurrent || isFinalising}
+                className={`flex items-center gap-2 rounded-xl px-6 py-3 transition-colors ${
+                  hasAnsweredCurrent
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
+                    : 'bg-gray-300'
+                }`}
+              >
+                <span>{t('assessmentScreen.nextBtn')}</span>
+                <ArrowRight className="h-5 w-5" />
+              </Button>
+            )}
+          </div>
+        </motion.div>
+
+        <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <div className="mb-2 flex items-center gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#EA3323">
+                  <path d="m40-120 440-760 440 760H40Zm115.33-66.67h649.34L480-746.67l-324.67 560ZM482.78-238q14.22 0 23.72-9.62 9.5-9.61 9.5-23.83 0-14.22-9.62-23.72-9.5-14.22 0-23.72 9.62-9.62 9.5 23.83 0 14.22 9.62 23.72 9.62 9.5 23.83 9.5Zm-33.45-114H516v-216h-66.67v216ZM480-466.67Z" />
+                </svg>
+                <AlertDialogTitle>{t('assessmentScreen.tabWarningTitle')}</AlertDialogTitle>
+              </div>
+              <AlertDialogDescription>
+                {t('assessmentScreen.tabWarningDescription', { remaining: 3 - tabViolations })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction onClick={() => setIsAlertOpen(false)}>
+                {t('assessmentScreen.tabWarningAction')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </motion.div>
-      <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+
+      <AlertDialog
+        open={Boolean(submissionError)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSubmissionError(null);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <div className="flex items-center gap-3 mb-2">
-              <svg xmlns="http://www.w3.org/2000/svg" height="40px" viewBox="0 -960 960 960" width="40px" fill="#EA3323">
-                <path d="m40-120 440-760 440 760H40Zm115.33-66.67h649.34L480-746.67l-324.67 560ZM482.78-238q14.22 0 23.72-9.62 9.5-9.61 9.5-23.83 0-14.22-9.62-23.72-9.5-14.22 0-23.72 9.62-9.62 9.5 23.83 0 14.22 9.62 23.72 9.62 9.5 23.83 9.5Zm-33.45-114H516v-216h-66.67v216ZM480-466.67Z"/>
-              </svg>
-              <AlertDialogTitle>{t('assessmentScreen.tabWarningTitle')}</AlertDialogTitle>
-            </div>
+            <AlertDialogTitle>{t('assessmentScreen.aiErrorTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('assessmentScreen.tabWarningDescription', { remaining: 3 - tabViolations })}
+              {submissionError ?? t('assessmentScreen.aiErrorDescription')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setIsAlertOpen(false)}>
-              {t('assessmentScreen.tabWarningAction')}
-            </AlertDialogAction>
+            <AlertDialogCancel disabled={isFinalising}>
+              {t('assessmentScreen.aiDismissButton')}
+            </AlertDialogCancel>
+            {canRetryAnalysis ? (
+              <AlertDialogAction
+                disabled={isFinalising}
+                onClick={() => {
+                  void retryAnalysis();
+                }}
+              >
+                {t('assessmentScreen.aiRetryButton')}
+              </AlertDialogAction>
+            ) : null}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </motion.div>
+    </>
   );
 };
 
