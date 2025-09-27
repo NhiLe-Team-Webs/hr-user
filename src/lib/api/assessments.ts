@@ -333,7 +333,7 @@ export const finaliseAssessmentAttempt = async (
     const resultPayload = {
       profile_id: payload.profileId,
       assessment_id: payload.assessmentId,
-      total_score: analysis.overallScore,
+      overall_score: analysis.overallScore,
       strengths: analysis.strengths,
       summary,
       ai_summary: analysis.summary,
@@ -386,9 +386,9 @@ interface LatestResultRow {
   id: string;
   profile_id: string;
   assessment_id: string;
-  total_score: number | null;
+  overall_score?: number | string | null;
+  total_score?: number | string | null;
   strengths?: string[] | null;
-  // insights?: string[] | null;
   summary?: { strengths?: string[] | null; summary?: string | null } | null;
   ai_summary?: string | null;
   analysis_model?: string | null;
@@ -401,11 +401,6 @@ const extractStrengthsFromResult = (row: LatestResultRow): string[] => {
   if (Array.isArray(row.strengths)) {
     candidates.push(row.strengths);
   }
-
-  // if (Array.isArray(row.insights)) {
-  //   candidates.push(row.insights);
-  // }
-
   const summaryStrengths = row.summary?.strengths;
   if (Array.isArray(summaryStrengths)) {
     candidates.push(summaryStrengths);
@@ -454,9 +449,8 @@ export const getLatestResult = async (
         id,
         profile_id,
         assessment_id,
-        total_score,
+        overall_score,
         strengths,
-        insights,
         summary,
         ai_summary,
         analysis_model,
@@ -481,10 +475,11 @@ export const getLatestResult = async (
   }
 
   const row = data as LatestResultRow;
+  const rawScoreValue = row.overall_score ?? row.total_score ?? null;
   const rawScore =
-    typeof row.total_score === 'string'
-      ? Number.parseFloat(row.total_score)
-      : row.total_score;
+    typeof rawScoreValue === 'string'
+      ? Number.parseFloat(rawScoreValue)
+      : rawScoreValue;
   const totalScore =
     typeof rawScore === 'number' && Number.isFinite(rawScore)
       ? Math.max(0, Math.min(100, Math.round(rawScore * 100) / 100))
