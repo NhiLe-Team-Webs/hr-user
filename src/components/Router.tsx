@@ -143,7 +143,7 @@ const useAssessmentResolution = (userId: string | undefined) => {
           return;
         }
 
-        setSelectedRole(resolution.selectedRole);
+        setSelectedRole((prevRole) => resolution.selectedRole ?? prevRole);
         setActiveAttempt(resolution.activeAttempt);
         setAssessmentResult(resolution.assessmentResult);
         setNextRoute(resolution.nextRoute);
@@ -153,7 +153,6 @@ const useAssessmentResolution = (userId: string | undefined) => {
         if (!isMounted) {
           return;
         }
-        setSelectedRole(null);
         setActiveAttempt(null);
         setAssessmentResult(null);
         setNextRoute('/role-selection');

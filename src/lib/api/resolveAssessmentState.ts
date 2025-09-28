@@ -263,7 +263,6 @@ export const resolveAssessmentState = async ({
       `
         id,
         overall_score,
-        total_score,
         strengths,
         weaknesses,
         summary,
