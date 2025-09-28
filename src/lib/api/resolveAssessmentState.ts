@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Role, AssessmentResult, AssessmentAttempt } from '@/types/assessment';
+import type { Role, AssessmentResult, AssessmentAttempt, HrApprovalStatus } from '@/types/assessment';
 import type { AssessmentAttemptRow } from './types';
 import { mapAssessmentAttempt } from './assessmentMappers.js';
 
@@ -17,8 +17,51 @@ interface SupabaseResultRow {
   development_suggestions?: unknown;
   recommended_roles?: unknown;
   completed_at?: string | null;
+  hr_review_status?: string | null;
+  profile?: Array<{ band: string | null }> | null;
   assessment?: Array<{ target_role: string | null }> | null;
 }
+
+const normaliseHrApprovalStatus = (value: unknown): HrApprovalStatus => {
+  if (typeof value === 'string') {
+    const normalised = value.trim().toLowerCase();
+    if (!normalised) {
+      return null;
+    }
+
+    if (['approved', 'accept', 'accepted', 'approved_by_hr', 'ready', 'green', 'go', 'tryout'].includes(normalised)) {
+      return 'approved';
+    }
+
+    if (['rejected', 'declined', 'failed', 'no', 'not_approved'].includes(normalised)) {
+      return 'rejected';
+    }
+
+    if (['pending', 'reviewing', 'in_review', 'waiting', 'processing'].includes(normalised)) {
+      return 'pending';
+    }
+
+    return 'pending';
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'approved' : 'pending';
+  }
+
+  return null;
+};
+
+const extractHrApprovalStatusFromRow = (row: SupabaseResultRow): HrApprovalStatus => {
+  const reviewStatus = normaliseHrApprovalStatus(row.hr_review_status);
+  if (reviewStatus) {
+    return reviewStatus;
+  }
+
+  const profileRecord = Array.isArray(row.profile) ? row.profile[0] : null;
+  const bandStatus = normaliseHrApprovalStatus(profileRecord?.band ?? null);
+
+  return bandStatus ?? 'pending';
+};
 
 const parseMaybeJsonObject = (value: unknown): Record<string, unknown> | null => {
   if (!value) {
@@ -229,6 +272,7 @@ export const resolveAssessmentState = async ({
         development_suggestions,
         recommended_roles,
         completed_at,
+        profile:profiles(band),
         assessment:assessments(target_role)
       `,
     )
@@ -280,6 +324,7 @@ export const resolveAssessmentState = async ({
           normaliseStringArray(getSummaryField(summaryPayload, 'development_suggestions')),
         ),
         completedAt: resultRow.completed_at ?? null,
+        hrApprovalStatus: extractHrApprovalStatusFromRow(resultRow),
       },
       activeAttempt: null,
     } satisfies AssessmentResolution;
@@ -312,4 +357,5 @@ export const resolveAssessmentState = async ({
 
   return defaultResolution;
 };
+
 

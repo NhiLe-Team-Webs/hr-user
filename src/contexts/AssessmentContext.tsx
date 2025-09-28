@@ -7,7 +7,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import type { AssessmentAttempt, AssessmentResult, AssessmentSkillScore, Role } from '@/types/assessment';
+import type { AssessmentAttempt, AssessmentResult, AssessmentSkillScore, Role, HrApprovalStatus } from '@/types/assessment';
 
 interface AssessmentState {
   selectedRole: Role | null;
@@ -67,6 +67,36 @@ const normaliseSkillScores = (value: unknown): AssessmentSkillScore[] => {
     .filter((entry): entry is AssessmentSkillScore => entry !== null);
 };
 
+const normaliseHrApprovalStatus = (value: unknown): HrApprovalStatus => {
+  if (typeof value === 'string') {
+    const normalised = value.trim().toLowerCase();
+    if (!normalised) {
+      return 'pending';
+    }
+
+    if (['approved', 'accept', 'accepted', 'approved_by_hr', 'ready', 'green', 'go', 'tryout'].includes(normalised)) {
+      return 'approved';
+    }
+
+    if (['rejected', 'declined', 'failed', 'no', 'not_approved'].includes(normalised)) {
+      return 'rejected';
+    }
+
+    if (['pending', 'reviewing', 'in_review', 'waiting', 'processing'].includes(normalised)) {
+      return 'pending';
+    }
+
+    return 'pending';
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'approved' : 'pending';
+  }
+
+  return 'pending';
+};
+
+
 const hydrateAssessmentResult = (value: unknown): AssessmentResult | null => {
   if (!value || typeof value !== 'object') {
     return null;
@@ -84,6 +114,8 @@ const hydrateAssessmentResult = (value: unknown): AssessmentResult | null => {
 
   const summary = typeof record.summary === 'string' ? record.summary : null;
   const completedAt = typeof record.completedAt === 'string' ? record.completedAt : null;
+  const hrApprovalRaw = record.hrApprovalStatus ?? record.hr_approval_status;
+  const hrApprovalStatus = normaliseHrApprovalStatus(hrApprovalRaw);
 
   return {
     score,
@@ -94,6 +126,7 @@ const hydrateAssessmentResult = (value: unknown): AssessmentResult | null => {
     recommendedRoles: normaliseStringArray(record.recommendedRoles),
     developmentSuggestions: normaliseStringArray(record.developmentSuggestions),
     completedAt,
+    hrApprovalStatus,
   };
 };
 
@@ -204,4 +237,5 @@ export const useAssessment = () => {
   }
   return context;
 };
+
 

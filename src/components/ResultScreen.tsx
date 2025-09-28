@@ -48,6 +48,25 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
   const skillScores = result.skillScores;
   const recommendedRoles = result.recommendedRoles;
   const developmentSuggestions = result.developmentSuggestions;
+  const hrApprovalStatus = result.hrApprovalStatus ?? 'pending';
+  const isHrApproved = hrApprovalStatus === 'approved';
+  const isHrRejected = hrApprovalStatus === 'rejected';
+  const tryoutMessage = isHrApproved
+    ? t('resultScreen.tryoutApprovedText')
+    : isHrRejected
+      ? t('resultScreen.tryoutRejectedText')
+      : t('resultScreen.tryoutPendingText');
+  const statusLabel = isHrApproved
+    ? t('resultScreen.hrStatusApproved')
+    : isHrRejected
+      ? t('resultScreen.hrStatusRejected')
+      : t('resultScreen.hrStatusPending');
+  const statusPillClass = isHrApproved
+    ? 'bg-white/90 text-emerald-600 shadow-lg shadow-emerald-200/40'
+    : isHrRejected
+      ? 'bg-white/10 text-red-100 border border-white/30'
+      : 'bg-white/10 text-emerald-50 border border-white/30';
+  const showTryoutButton = isHrApproved;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-sky-50 px-4 py-12">
@@ -237,17 +256,26 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
           <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-2xl font-bold">{t('resultScreen.nextStepsTitle')}</h3>
-              <p className="mt-2 max-w-2xl text-sm text-emerald-50 md:text-base">
-                {t('resultScreen.tryoutText')}
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <span
+                  className={`inline-flex items-center rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-wide ${statusPillClass}`}
+                >
+                  {statusLabel}
+                </span>
+              </div>
+              <p className="mt-3 max-w-2xl text-sm text-emerald-50 md:text-base">
+                {tryoutMessage}
               </p>
             </div>
-            <Button
-              onClick={onTryoutClick}
-              className="group flex items-center gap-2 rounded-full bg-white px-6 py-3 text-base font-semibold text-emerald-600 shadow-lg shadow-emerald-300 transition hover:-translate-y-1 hover:shadow-xl"
-            >
-              {t('resultScreen.tryoutCta')}
-              <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
-            </Button>
+            {showTryoutButton && (
+              <Button
+                onClick={onTryoutClick}
+                className="group flex items-center gap-2 rounded-full bg-white px-6 py-3 text-base font-semibold text-emerald-600 shadow-lg shadow-emerald-300 transition hover:-translate-y-1 hover:shadow-xl"
+              >
+                {t('resultScreen.tryoutCta')}
+                <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+              </Button>
+            )}
           </div>
         </section>
       </motion.div>

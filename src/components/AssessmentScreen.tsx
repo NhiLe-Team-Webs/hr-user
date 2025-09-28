@@ -170,6 +170,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           recommendedRoles: latest.recommendedRoles,
           developmentSuggestions: latest.developmentSuggestions,
           completedAt: latest.completedAt ?? latest.createdAt,
+          hrApprovalStatus: latest.hrApprovalStatus,
         });
       } else {
         setAssessmentResult(result.result);

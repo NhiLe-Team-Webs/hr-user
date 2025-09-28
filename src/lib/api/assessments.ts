@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabaseClient';
 import type { Question } from '@/types/question';
-import type { AssessmentAttempt, AssessmentResult, AssessmentSkillScore } from '@/types/assessment';
+import type { AssessmentAttempt, AssessmentResult, AssessmentSkillScore, HrApprovalStatus } from '@/types/assessment';
 import {
   analyzeWithGemini,
   GEMINI_MODEL_NAME,
@@ -403,6 +403,8 @@ interface LatestResultRow {
   analysis_model?: string | null;
   analysis_completed_at?: string | null;
   insight_locale?: string | null;
+  hr_review_status?: string | null;
+  profile?: Array<{ band: string | null }> | null;
   created_at: string;
 }
 
@@ -537,6 +539,48 @@ const collectSkillScores = (...candidates: unknown[]): AssessmentSkillScore[] =>
   return scores;
 };
 
+const normaliseHrApprovalStatus = (value: unknown): HrApprovalStatus => {
+  if (typeof value === 'string') {
+    const normalised = value.trim().toLowerCase();
+    if (!normalised) {
+      return null;
+    }
+
+    if (['approved', 'accept', 'accepted', 'approved_by_hr', 'ready', 'green', 'go', 'tryout'].includes(normalised)) {
+      return 'approved';
+    }
+
+    if (['rejected', 'declined', 'failed', 'no', 'not_approved'].includes(normalised)) {
+      return 'rejected';
+    }
+
+    if (['pending', 'reviewing', 'in_review', 'waiting', 'processing'].includes(normalised)) {
+      return 'pending';
+    }
+
+    return 'pending';
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'approved' : 'pending';
+  }
+
+  return null;
+};
+
+const extractHrApprovalStatusFromRow = (row: { hr_review_status?: unknown; profile?: Array<{ band?: unknown }> | null }): HrApprovalStatus => {
+  const reviewStatus = normaliseHrApprovalStatus(row.hr_review_status);
+  if (reviewStatus) {
+    return reviewStatus;
+  }
+
+  const profileRecord = Array.isArray(row.profile) ? row.profile[0] : null;
+  const bandStatus = normaliseHrApprovalStatus(profileRecord?.band ?? null);
+
+  return bandStatus ?? 'pending';
+};
+
+
 const extractStrengthsFromResult = (row: LatestResultRow, summary: SummaryPayload | null): string[] =>
   collectStringValues(row.strengths, summary?.strengths);
 
@@ -605,6 +649,7 @@ export interface LatestResultRecord {
   developmentSuggestions: string[];
   skillScores: AssessmentSkillScore[];
   recommendedRoles: string[];
+  hrApprovalStatus: HrApprovalStatus;
   analysisModel: string | null;
   completedAt: string | null;
   insightLocale: string | null;
@@ -637,6 +682,7 @@ export const getLatestResult = async (
         analysis_model,
         analysis_completed_at,
         insight_locale,
+        profile:profiles(band),
         created_at
       `,
     )
@@ -672,10 +718,12 @@ export const getLatestResult = async (
     developmentSuggestions: extractDevelopmentSuggestionsFromResult(row, summaryPayload),
     skillScores: extractSkillScoresFromResult(row, summaryPayload),
     recommendedRoles: extractRecommendedRolesFromResult(row, summaryPayload),
+    hrApprovalStatus: extractHrApprovalStatusFromRow(row),
     analysisModel: typeof row.analysis_model === 'string' ? row.analysis_model : null,
     completedAt: typeof row.analysis_completed_at === 'string' ? row.analysis_completed_at : null,
     insightLocale: typeof row.insight_locale === 'string' ? row.insight_locale : null,
     createdAt: row.created_at,
   } satisfies LatestResultRecord;
 };
+
 

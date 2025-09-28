@@ -22,6 +22,8 @@ export type AnswerValue = string | number;
 
 export type UserAnswers = Record<number, AnswerValue>;
 
+export type HrApprovalStatus = 'pending' | 'approved' | 'rejected' | null;
+
 export interface Assessment {
   id: string;
   title: string;
@@ -52,6 +54,7 @@ export interface AssessmentResult {
   recommendedRoles: string[];
   developmentSuggestions: string[];
   completedAt: string | null;
+  hrApprovalStatus: HrApprovalStatus;
 }
 
 
@@ -70,3 +73,4 @@ export interface AssessmentAttempt {
   aiStatus?: 'idle' | 'processing' | 'completed' | 'failed' | null;
   lastAiError?: string | null;
 }
+

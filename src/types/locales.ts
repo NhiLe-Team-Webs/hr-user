@@ -74,7 +74,12 @@ type TranslationKey = {
     nextStepsTitle: string;
     successText: string;
     successCta: string;
-    tryoutText: string;
+    tryoutPendingText: string;
+    tryoutApprovedText: string;
+    tryoutRejectedText: string;
+    hrStatusPending: string;
+    hrStatusApproved: string;
+    hrStatusRejected: string;
     tryoutCta: string;
   };
   tryoutScreen: {

@@ -27,9 +27,25 @@ const FullScreenLoader = () => (
 
 const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { user } = useAuth();
+  const { assessmentResult } = useAssessment();
+  const location = useLocation();
+  const { status: resolutionStatus, nextRoute } = useAssessmentResolution(user?.id);
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (resolutionStatus !== 'ready') {
+    return <FullScreenLoader />;
+  }
+
+  const shouldRedirectToResult =
+    (assessmentResult || nextRoute === '/result') &&
+    location.pathname !== '/result' &&
+    location.pathname !== '/tryout';
+
+  if (shouldRedirectToResult) {
+    return <Navigate to="/result" replace />;
   }
 
   return <>{children}</>;
@@ -269,6 +285,7 @@ const ResultRoute = () => {
           recommendedRoles: latest.recommendedRoles,
           developmentSuggestions: latest.developmentSuggestions,
           completedAt: latest.completedAt ?? latest.createdAt,
+          hrApprovalStatus: latest.hrApprovalStatus,
         });
       } else {
         setAssessmentResult(null);
@@ -369,5 +386,6 @@ const TryoutRoute = () => {
 };
 
 export default Router;
+
 
 

@@ -633,6 +633,7 @@ export const toAssessmentResult = (analysis: GeminiAnalysisResponse): Assessment
   recommendedRoles: [],
   developmentSuggestions: [],
   completedAt: null,
+  hrApprovalStatus: 'pending',
 });
 
 export { MODEL_NAME as GEMINI_MODEL_NAME };
