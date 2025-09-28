@@ -261,11 +261,14 @@ const ResultRoute = () => {
       const latest = await getLatestResult(user.id, activeAttempt?.assessmentId);
       if (latest) {
         setAssessmentResult({
-          score:
-            typeof latest.totalScore === 'number' && Number.isFinite(latest.totalScore)
-              ? latest.totalScore
-              : 0,
+          score: latest.score,
+          summary: latest.summary,
           strengths: latest.strengths,
+          developmentAreas: latest.developmentAreas,
+          skillScores: latest.skillScores,
+          recommendedRoles: latest.recommendedRoles,
+          developmentSuggestions: latest.developmentSuggestions,
+          completedAt: latest.completedAt ?? latest.createdAt,
         });
       } else {
         setAssessmentResult(null);

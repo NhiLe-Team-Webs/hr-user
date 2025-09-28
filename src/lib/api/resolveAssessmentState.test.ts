@@ -95,7 +95,16 @@ describe('resolveAssessmentState', () => {
 
     const resolution = await expectResolution(client, {
       nextRoute: '/result',
-      assessmentResult: { score: 92, strengths: ['Focus', 'Collaboration'] },
+      assessmentResult: {
+        score: 92,
+        summary: null,
+        strengths: ['Focus', 'Collaboration'],
+        developmentAreas: [],
+        skillScores: [],
+        recommendedRoles: [],
+        developmentSuggestions: [],
+        completedAt: null,
+      },
       selectedRole: { name: 'Content Creator', title: 'Content Creator' },
       activeAttempt: null,
     });
