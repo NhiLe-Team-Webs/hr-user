@@ -53,6 +53,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   const [tabViolations, setTabViolations] = useState(0);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [hasTimerStarted, setHasTimerStarted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
   const [isFinalising, setIsFinalising] = useState(false);
@@ -247,6 +248,10 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   }, [activeAttempt?.cheatingCount]);
 
   useEffect(() => {
+    setHasTimerStarted(false);
+  }, [activeAttempt?.id]);
+
+  useEffect(() => {
     questionTimeSpentRef.current = {};
     questionStartTimeRef.current = null;
     activeQuestionIdRef.current = null;
@@ -383,7 +388,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     await persistAllAnswers();
     await persistCheatingCount(tabViolations);
 
-    const totalDurationSeconds = calculateTotalDuration();
+    const totalDurationSeconds = Math.max(0, Math.round(calculateTotalDuration()));
     const totalQuestions = questions.length || activeAttempt.totalQuestions || 0;
     const averageSecondsPerQuestion =
       totalQuestions > 0 ? totalDurationSeconds / totalQuestions : null;
@@ -495,20 +500,32 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
   // Timer logic
   useEffect(() => {
-    if (timeLeft <= 0 && timeLeft !== 0) {
-      void finishAssessment();
+    if (!hasTimerStarted) {
       return;
     }
 
-    if (timeLeft > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-      return () => clearInterval(timer);
+    if (timeLeft <= 0) {
+      if (!isFinalising && !isAttemptSubmitted) {
+        void finishAssessment();
+      }
+
+      return;
     }
 
-    return undefined;
-  }, [timeLeft, finishAssessment]);
+    const timer = window.setInterval(() => {
+      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [finishAssessment, hasTimerStarted, isAttemptSubmitted, isFinalising, timeLeft]);
+
+  useEffect(() => {
+    if (timeLeft > 0) {
+      setHasTimerStarted(true);
+    }
+  }, [timeLeft]);
 
   const isAttemptSubmitted = Boolean(activeAttempt?.submittedAt);
 
@@ -570,7 +587,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
   const handleOptionSelect = (optionIndex: number) => {
     saveAnswer(currentQuestionIndex, optionIndex);
-    void ensureAnswerPersisted(currentQuestionIndex, optionIndex);
+    void ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: optionIndex });
   };
 
   const navigateQuestion = useCallback(
@@ -601,7 +618,12 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           throw new Error('No assessment data returned');
         }
         setAssessment(assessmentData);
-        setTimeLeft(assessmentData.duration);
+        const durationInSeconds =
+          typeof assessmentData.duration === 'number' && Number.isFinite(assessmentData.duration)
+            ? Math.max(0, Math.round(assessmentData.duration))
+            : 0;
+        setTimeLeft(durationInSeconds);
+        setHasTimerStarted(durationInSeconds > 0);
 
         if (assessmentData.questions?.length > 0) {
           const formattedQuestions: Question[] = assessmentData.questions.map((q: Question) => {

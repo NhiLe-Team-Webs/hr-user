@@ -60,9 +60,9 @@ export interface AssessmentAttemptRow {
   last_activity_at: string | null;
   last_ai_error?: string | null;
   ai_status?: string | null;
-  duration_seconds?: number | null;
-  average_seconds_per_question?: number | null;
-  cheating_count?: number | null;
+  duration_seconds?: number | string | null;
+  average_seconds_per_question?: number | string | null;
+  cheating_count?: number | string | null;
 }
 
 export type QuestionsByRole = Record<string, Question[]>;

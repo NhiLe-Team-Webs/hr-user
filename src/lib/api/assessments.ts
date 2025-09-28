@@ -295,10 +295,8 @@ export const submitAssessmentAttempt = async (
     typeof meta?.averageSecondsPerQuestion === 'number' &&
     Number.isFinite(meta.averageSecondsPerQuestion)
   ) {
-    updates.average_seconds_per_question = Math.max(
-      0,
-      Math.round(meta.averageSecondsPerQuestion),
-    );
+    const safeAverage = Math.max(0, meta.averageSecondsPerQuestion);
+    updates.average_seconds_per_question = Math.round(safeAverage * 100) / 100;
   } else if (meta?.averageSecondsPerQuestion === null) {
     updates.average_seconds_per_question = null;
   }
@@ -346,10 +344,8 @@ export const updateAssessmentAttemptMeta = async (
     typeof payload.averageSecondsPerQuestion === 'number' &&
     Number.isFinite(payload.averageSecondsPerQuestion)
   ) {
-    updates.average_seconds_per_question = Math.max(
-      0,
-      Math.round(payload.averageSecondsPerQuestion),
-    );
+    const safeAverage = Math.max(0, payload.averageSecondsPerQuestion);
+    updates.average_seconds_per_question = Math.round(safeAverage * 100) / 100;
   } else if (payload.averageSecondsPerQuestion === null) {
     updates.average_seconds_per_question = null;
   }
