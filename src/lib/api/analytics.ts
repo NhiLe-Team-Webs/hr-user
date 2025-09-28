@@ -12,7 +12,6 @@ interface SupabaseAnalyticsAssessment {
 
 interface SupabaseAnalyticsRow {
   overall_score?: number | null;
-  total_score?: number | null;
   assessment: SupabaseAnalyticsAssessment[] | null;
   user: SupabaseAnalyticsUser[] | null;
 }
@@ -34,7 +33,6 @@ export const getAnalyticsData = async (): Promise<AnalyticsCandidateSummary[]> =
     .select(
       `
         overall_score,
-        total_score,
         assessment:assessments(target_role),
         user:profiles(id, name, band)
       `,
@@ -62,7 +60,7 @@ export const getAnalyticsData = async (): Promise<AnalyticsCandidateSummary[]> =
         role: assessment?.target_role ?? 'Unknown',
         band: user.band ?? null,
         scores: {
-          overall: item.overall_score ?? item.total_score ?? null,
+          overall: item.overall_score ?? null,
         },
         status: 'completed' as const,
       } satisfies AnalyticsCandidateSummary;
