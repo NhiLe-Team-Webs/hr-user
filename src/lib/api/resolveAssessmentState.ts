@@ -8,7 +8,6 @@ type NextRoute = '/result' | '/assessment' | '/role-selection';
 interface SupabaseResultRow {
   id: string;
   overall_score?: number | string | null;
-  total_score?: number | string | null;
   strengths?: unknown;
   weaknesses?: unknown;
   summary?: unknown;
@@ -289,7 +288,7 @@ export const resolveAssessmentState = async ({
   if (resultRow) {
     const summaryPayload = parseMaybeJsonObject(resultRow.summary ?? null);
     const summaryScore = normaliseScoreValue(getSummaryField(summaryPayload, 'overall_score'));
-    const fallbackScore = normaliseScoreValue(resultRow.overall_score ?? resultRow.total_score ?? null);
+    const fallbackScore = normaliseScoreValue(resultRow.overall_score ?? null);
     const score = summaryScore ?? fallbackScore;
     const strengths = mergeUniqueStrings(
       normaliseStringArray(resultRow.strengths),

@@ -78,7 +78,7 @@ export const getCandidates = async (): Promise<CandidateInfo[]> => {
 
   return rows.map((profile) => {
     const totalScore =
-      profile.results?.[0]?.overall_score ?? null;
+      profile.results?.[0]?.overall_score ?? profile.results?.[0]?.overall_score ?? null;
     const status: CandidateInfo['status'] = totalScore != null ? 'completed' : 'in_progress';
 
     return {

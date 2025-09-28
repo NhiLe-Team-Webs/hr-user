@@ -1,6 +1,19 @@
 import type { AssessmentAttempt } from '@/types/assessment';
 import type { AssessmentAttemptRow } from './types';
 
+const parseNullableNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
 export const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => ({
   id: row.id,
   assessmentId: row.assessment_id,
@@ -14,7 +27,12 @@ export const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttem
   lastActivityAt: row.last_activity_at,
   aiStatus: (row.ai_status as AssessmentAttempt['aiStatus']) ?? null,
   lastAiError: row.last_ai_error ?? null,
-  durationSeconds: row.duration_seconds ?? null,
-  averageSecondsPerQuestion: row.average_seconds_per_question ?? null,
-  cheatingCount: row.cheating_count ?? 0,
+  durationSeconds: parseNullableNumber(row.duration_seconds ?? null),
+  averageSecondsPerQuestion: parseNullableNumber(row.average_seconds_per_question ?? null),
+  cheatingCount:
+    typeof row.cheating_count === 'number'
+      ? row.cheating_count
+      : typeof row.cheating_count === 'string'
+        ? Number.parseInt(row.cheating_count, 10) || 0
+        : 0,
 });
