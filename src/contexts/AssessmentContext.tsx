@@ -17,7 +17,7 @@ interface AssessmentState {
 
 interface AssessmentContextValue extends AssessmentState {
   isHydrated: boolean;
-  setSelectedRole: (role: Role | null) => void;
+  setSelectedRole: (role: Role | null | ((prev: Role | null) => Role | null)) => void;
   setAssessmentResult: (result: AssessmentResult | null) => void;
   setActiveAttempt: (attempt: AssessmentAttempt | null) => void;
   updateActiveAttempt: (update: Partial<AssessmentAttempt>) => void;
@@ -172,13 +172,21 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
     }
   }, [state, isHydrated]);
 
-  const setSelectedRole = useCallback((role: Role | null) => {
-    setState((prev) => ({
-      ...prev,
-      selectedRole: role,
-      assessmentResult: role ? prev.assessmentResult : null,
-      activeAttempt: role ? prev.activeAttempt : null,
-    }));
+
+  const setSelectedRole = useCallback((roleOrUpdater: Role | null | ((prev: Role | null) => Role | null)) => {
+    setState((prev) => {
+      const nextRole =
+        typeof roleOrUpdater === 'function'
+          ? (roleOrUpdater as (prev: Role | null) => Role | null)(prev.selectedRole)
+          : roleOrUpdater;
+
+      return {
+        ...prev,
+        selectedRole: nextRole,
+        assessmentResult: nextRole ? prev.assessmentResult : null,
+        activeAttempt: nextRole ? prev.activeAttempt : null,
+      };
+    });
   }, []);
 
   const setAssessmentResult = useCallback((result: AssessmentResult | null) => {
@@ -237,5 +245,4 @@ export const useAssessment = () => {
   }
   return context;
 };
-
 

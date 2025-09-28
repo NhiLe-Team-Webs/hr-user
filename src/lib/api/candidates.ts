@@ -7,7 +7,7 @@ interface SupabaseCandidateDetails {
   email: string | null;
   role: string | null;
   band: string | null;
-  scores?: { overall_score: number | null; total_score?: number | null }[];
+  scores?: { overall_score: number | null }[];
 }
 
 interface SupabaseCandidateProfile {
@@ -16,7 +16,7 @@ interface SupabaseCandidateProfile {
   email: string | null;
   role: string | null;
   band: string | null;
-  results?: { overall_score: number | null; total_score?: number | null }[];
+  results?: { overall_score: number | null }[];
 }
 
 export const updateCandidateInfo = async (candidateId: string, updates: ProfileUpdates): Promise<void> => {
@@ -41,7 +41,7 @@ export const getCandidateDetails = async (candidateId: string): Promise<Supabase
         email,
         role,
         band,
-        scores:results(overall_score,total_score)
+        scores:results(overall_score)
       `,
     )
     .eq('id', candidateId)
@@ -65,7 +65,7 @@ export const getCandidates = async (): Promise<CandidateInfo[]> => {
         email,
         role,
         band,
-        results(overall_score,total_score)
+        results(overall_score)
       `,
     );
 
@@ -78,7 +78,7 @@ export const getCandidates = async (): Promise<CandidateInfo[]> => {
 
   return rows.map((profile) => {
     const totalScore =
-      profile.results?.[0]?.overall_score ?? profile.results?.[0]?.total_score ?? null;
+      profile.results?.[0]?.overall_score ?? profile.results?.[0]?.overall_score ?? null;
     const status: CandidateInfo['status'] = totalScore != null ? 'completed' : 'in_progress';
 
     return {
