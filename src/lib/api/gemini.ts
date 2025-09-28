@@ -274,7 +274,7 @@ const parseGeminiPayload = (payload: unknown): GeminiAnalysisResponse => {
   }
 
   const typed = payload as Record<string, unknown>;
-  const overallScore = normaliseNumber(typed.overall_score ?? typed.total_score);
+  const overallScore = normaliseNumber(typed.overall_score);
   const skillScores = normaliseSkillScores(typed.skill_scores);
   const strengths = normaliseStringArray(typed.strengths);
   const developmentAreas = normaliseStringArray(typed.development_areas ?? typed.opportunities);
