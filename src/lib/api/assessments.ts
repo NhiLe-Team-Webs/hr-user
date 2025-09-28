@@ -112,12 +112,22 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
 };
 
 export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => {
-  const base = {
+  const base: Record<string, unknown> = {
     result_id: payload.resultId ?? null,
     question_id: payload.questionId,
     user_answer_text: payload.userAnswerText ?? null,
     selected_option_id: payload.selectedOptionId ?? null,
   };
+
+  if (typeof payload.attemptId !== 'undefined') {
+    base.attempt_id = payload.attemptId;
+  }
+
+  if (typeof payload.timeSpentSeconds === 'number') {
+    base.time_spent_seconds = Math.max(0, Math.round(payload.timeSpentSeconds));
+  } else if (payload.timeSpentSeconds === null) {
+    base.time_spent_seconds = null;
+  }
 
   if (payload.id) {
     const { data, error } = await supabase
@@ -241,6 +251,9 @@ export const startAssessmentAttempt = async (payload: {
       last_activity_at: nowIso,
       ai_status: 'idle',
       last_ai_error: null,
+      cheating_count: 0,
+      duration_seconds: null,
+      average_seconds_per_question: null,
     })
     .select()
     .single();
@@ -253,17 +266,50 @@ export const startAssessmentAttempt = async (payload: {
   return mapAssessmentAttempt(data as AssessmentAttemptRow);
 };
 
-export const submitAssessmentAttempt = async (attemptId: string): Promise<AssessmentAttempt> => {
+interface SubmitAttemptOptions {
+  durationSeconds?: number | null;
+  averageSecondsPerQuestion?: number | null;
+  cheatingCount?: number | null;
+}
+
+export const submitAssessmentAttempt = async (
+  attemptId: string,
+  meta?: SubmitAttemptOptions,
+): Promise<AssessmentAttempt> => {
   const nowIso = new Date().toISOString();
+  const updates: Record<string, unknown> = {
+    status: 'awaiting_ai',
+    submitted_at: nowIso,
+    last_activity_at: nowIso,
+    last_ai_error: null,
+    ai_status: 'processing',
+  } satisfies Record<string, unknown>;
+
+  if (typeof meta?.durationSeconds === 'number') {
+    updates.duration_seconds = Math.max(0, Math.round(meta.durationSeconds));
+  } else if (meta?.durationSeconds === null) {
+    updates.duration_seconds = null;
+  }
+
+  if (
+    typeof meta?.averageSecondsPerQuestion === 'number' &&
+    Number.isFinite(meta.averageSecondsPerQuestion)
+  ) {
+    updates.average_seconds_per_question = Math.max(
+      0,
+      Math.round(meta.averageSecondsPerQuestion),
+    );
+  } else if (meta?.averageSecondsPerQuestion === null) {
+    updates.average_seconds_per_question = null;
+  }
+
+  if (typeof meta?.cheatingCount === 'number') {
+    updates.cheating_count = Math.max(0, Math.round(meta.cheatingCount));
+  }
+
   const { data, error } = await supabase
     .from('assessment_attempts')
-    .update({
-      status: 'awaiting_ai',
-      submitted_at: nowIso,
-      last_activity_at: nowIso,
-      last_ai_error: null,
-      ai_status: 'processing',
-    })
+    .update(updates)
     .eq('id', attemptId)
     .select()
     .single();
@@ -274,6 +320,55 @@ export const submitAssessmentAttempt = async (attemptId: string): Promise<Assess
   }
 
   return mapAssessmentAttempt(data as AssessmentAttemptRow);
+};
+
+export const updateAssessmentAttemptMeta = async (
+  attemptId: string,
+  payload: {
+    cheatingCount?: number;
+    durationSeconds?: number | null;
+    averageSecondsPerQuestion?: number | null;
+  },
+): Promise<void> => {
+  const updates: Record<string, unknown> = {};
+
+  if (typeof payload.cheatingCount === 'number') {
+    updates.cheating_count = Math.max(0, Math.round(payload.cheatingCount));
+  }
+
+  if (typeof payload.durationSeconds === 'number') {
+    updates.duration_seconds = Math.max(0, Math.round(payload.durationSeconds));
+  } else if (payload.durationSeconds === null) {
+    updates.duration_seconds = null;
+  }
+
+  if (
+    typeof payload.averageSecondsPerQuestion === 'number' &&
+    Number.isFinite(payload.averageSecondsPerQuestion)
+  ) {
+    updates.average_seconds_per_question = Math.max(
+      0,
+      Math.round(payload.averageSecondsPerQuestion),
+    );
+  } else if (payload.averageSecondsPerQuestion === null) {
+    updates.average_seconds_per_question = null;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return;
+  }
+
+  updates.last_activity_at = new Date().toISOString();
+
+  const { error } = await supabase
+    .from('assessment_attempts')
+    .update(updates)
+    .eq('id', attemptId);
+
+  if (error) {
+    console.error('Failed to update assessment attempt metadata:', error);
+    throw new Error('Khong the cap nhat thong tin bai danh gia.');
+  }
 };
 
 const truncateErrorMessage = (value: string, maxLength = 500) => {

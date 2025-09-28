@@ -72,5 +72,8 @@ export interface AssessmentAttempt {
   lastActivityAt?: string | null;
   aiStatus?: 'idle' | 'processing' | 'completed' | 'failed' | null;
   lastAiError?: string | null;
+  durationSeconds?: number | null;
+  averageSecondsPerQuestion?: number | null;
+  cheatingCount?: number;
 }
 

@@ -27,10 +27,12 @@ export interface CandidateInfo {
 export interface AnswerRow {
   id: string;
   result_id: string | null;
+  attempt_id?: string | null;
   question_id: string;
   user_answer_text: string | null;
   selected_option_id: string | null;
   created_at: string;
+  time_spent_seconds?: number | null;
 }
 
 export interface AnswerInput {
@@ -40,6 +42,7 @@ export interface AnswerInput {
   questionId: string;
   userAnswerText?: string | null;
   selectedOptionId?: string | null;
+  timeSpentSeconds?: number | null;
 }
 
 export interface AssessmentAttemptRow {
@@ -57,6 +60,9 @@ export interface AssessmentAttemptRow {
   last_activity_at: string | null;
   last_ai_error?: string | null;
   ai_status?: string | null;
+  duration_seconds?: number | null;
+  average_seconds_per_question?: number | null;
+  cheating_count?: number | null;
 }
 
 export type QuestionsByRole = Record<string, Question[]>;

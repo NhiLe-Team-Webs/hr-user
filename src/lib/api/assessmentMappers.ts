@@ -14,4 +14,7 @@ export const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttem
   lastActivityAt: row.last_activity_at,
   aiStatus: (row.ai_status as AssessmentAttempt['aiStatus']) ?? null,
   lastAiError: row.last_ai_error ?? null,
+  durationSeconds: row.duration_seconds ?? null,
+  averageSecondsPerQuestion: row.average_seconds_per_question ?? null,
+  cheatingCount: row.cheating_count ?? 0,
 });
