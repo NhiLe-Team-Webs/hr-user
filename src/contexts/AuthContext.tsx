@@ -10,7 +10,6 @@ interface AuthContextValue {
   status: AuthStatus;
   session: Session | null;
   user: User | null;
-  signInWithEmail: (email: string) => Promise<{ error?: string }>;
   signInWithProvider: (provider: OAuthProvider) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 }
@@ -27,27 +26,42 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
   useEffect(() => {
     let isMounted = true;
 
+    console.log('[AuthContext] Initializing...');
+
     const syncSession = async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
+        console.log('[AuthContext] getSession result:', {
+          hasSession: !!data?.session,
+          userId: data?.session?.user?.id,
+          email: data?.session?.user?.email,
+          error: error?.message,
+        });
+        
         if (!isMounted) {
           return;
         }
         if (error) {
-          console.error('Supabase session error:', error);
+          console.error('[AuthContext] Supabase session error:', error);
         }
         setSession(data?.session ?? null);
         setUser(data?.session?.user ?? null);
       } finally {
         if (isMounted) {
           setStatus('ready');
+          console.log('[AuthContext] Status set to ready');
         }
       }
     };
 
     void syncSession();
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      console.log('[AuthContext] Auth state changed:', event, {
+        hasSession: !!nextSession,
+        userId: nextSession?.user?.id,
+        email: nextSession?.user?.email,
+      });
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       setStatus('ready');
@@ -61,27 +75,7 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
     };
   }, []);
 
-  const signInWithEmail = async (email: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: `${window.location.origin}/role-selection`,
-        },
-      });
 
-      if (error) {
-        console.error('Supabase email sign-in error:', error);
-        return { error: toFriendlyMessage() };
-      }
-
-      return {};
-    } catch (error) {
-      console.error('Unexpected email sign-in error:', error);
-      return { error: toFriendlyMessage() };
-    }
-  };
 
   const signInWithProvider = async (provider: OAuthProvider) => {
     try {
@@ -116,7 +110,6 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
       status,
       session,
       user,
-      signInWithEmail,
       signInWithProvider,
       signOut,
     }),

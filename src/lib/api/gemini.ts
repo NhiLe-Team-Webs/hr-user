@@ -30,6 +30,7 @@ export interface GeminiAnalysisResponse {
   skillScores: GeminiSkillScore[];
   strengths: string[];
   developmentAreas: string[];
+  recommendedRoles: string[];
   summary: string;
   raw: unknown;
 }
@@ -109,9 +110,9 @@ const buildPrompt = (
   const languageInstruction =
     request.language === 'vi'
       ?
-        'Please analyse the answers in Vietnamese. The response must be written in Vietnamese.'
+        'IMPORTANT: You MUST respond in Vietnamese language. All text in the JSON response (summary, strengths, development_areas, skill names) must be written in Vietnamese. Phân tích câu trả lời và trả về kết quả bằng tiếng Việt.'
       :
-        'Please analyse the answers in English. The response must be written in English.';
+        'IMPORTANT: You MUST respond in English language. All text in the JSON response must be written in English.';
 
   const payload = {
     candidate: {
@@ -132,20 +133,27 @@ const buildPrompt = (
     }),
   } satisfies Record<string, unknown>;
 
-  return [
+  const promptParts = [
     'You are an experienced HR assessor specialising in behavioural and culture-fit interviews.',
     'Evaluate the candidate responses and provide a structured summary.',
+    '',
+    languageInstruction,
+    '',
     'Return a strict JSON object with the following keys:',
     '- "overall_score": number from 0-100 (integer or float).',
-    '- "skill_scores": array of objects with "name" and "score" (0-100).',
+    '- "skill_scores": array of objects with "name" (string) and "score" (0-100).',
     '- "strengths": array of strings describing positive behaviours.',
     '- "development_areas": array of strings for improvements.',
+    '- "recommended_roles": array of strings suggesting suitable roles for this candidate.',
     '- "summary": a concise paragraph (string) tailored for the candidate.',
-    'Do not include any additional commentary. JSON only.',
-    languageInstruction,
+    '',
+    'Do not include any additional commentary or markdown. Return only valid JSON.',
+    '',
     'Assessment context:',
     JSON.stringify(payload, null, 2),
-  ].join('\n\n');
+  ];
+
+  return promptParts.join('\n');
 };
 
 const truncateAnswers = (
@@ -278,6 +286,7 @@ const parseGeminiPayload = (payload: unknown): GeminiAnalysisResponse => {
   const skillScores = normaliseSkillScores(typed.skill_scores);
   const strengths = normaliseStringArray(typed.strengths);
   const developmentAreas = normaliseStringArray(typed.development_areas ?? typed.opportunities);
+  const recommendedRoles = normaliseStringArray(typed.recommended_roles);
   const summary = typeof typed.summary === 'string' ? typed.summary.trim() : '';
 
   return {
@@ -286,6 +295,7 @@ const parseGeminiPayload = (payload: unknown): GeminiAnalysisResponse => {
     skillScores,
     strengths,
     developmentAreas,
+    recommendedRoles,
     summary,
     raw: payload,
   } satisfies GeminiAnalysisResponse;
@@ -461,6 +471,7 @@ export const analyzeWithGemini = async (
       skillScores: [],
       strengths: [],
       developmentAreas: [],
+      recommendedRoles: [],
       summary: '',
       raw: null,
     } satisfies GeminiAnalysisResponse;
@@ -630,8 +641,8 @@ export const toAssessmentResult = (analysis: GeminiAnalysisResponse): Assessment
       name: item.name.trim(),
       score: normaliseScore(item.score) ?? 0,
     })),
-  recommendedRoles: [],
-  developmentSuggestions: [],
+  recommendedRoles: normaliseTextArray(analysis.recommendedRoles),
+  developmentSuggestions: normaliseTextArray(analysis.developmentAreas),
   completedAt: null,
   hrApprovalStatus: 'pending',
 });

@@ -174,7 +174,9 @@ const fetchLatestAssessmentAttempt = async (profileId: string, assessmentId: str
 };
 
 export const ensureProfile = async (payload: ProfileRow): Promise<void> => {
-  const { error } = await supabase
+  console.log('[ensureProfile] Creating/updating profile:', { id: payload.id, email: payload.email, name: payload.name });
+  
+  const { data, error } = await supabase
     .from('profiles')
     .upsert(
       {
@@ -183,12 +185,15 @@ export const ensureProfile = async (payload: ProfileRow): Promise<void> => {
         name: payload.name,
       },
       { onConflict: 'id' },
-    );
+    )
+    .select();
 
   if (error) {
-    console.error('Failed to ensure profile:', error);
+    console.error('[ensureProfile] Failed to ensure profile:', error);
     throw new Error('Khong the khoi tao ho so nguoi dung.');
   }
+
+  console.log('[ensureProfile] Profile ensured successfully:', data);
 };
 
 export const startAssessmentAttempt = async (payload: {
@@ -198,20 +203,25 @@ export const startAssessmentAttempt = async (payload: {
   totalQuestions: number;
 }): Promise<AssessmentAttempt> => {
   // Check if user already has a completed result
-  const { data: existingResult, error: resultError } = await supabase
-    .from('results')
-    .select('id, hr_review_status')
-    .eq('profile_id', payload.profileId)
-    .limit(1)
-    .maybeSingle();
+  // TEMPORARILY DISABLED FOR TESTING - REMOVE THIS COMMENT WHEN READY FOR PRODUCTION
+  const ALLOW_RETAKE_FOR_TESTING = true; // Set to false in production
+  
+  if (!ALLOW_RETAKE_FOR_TESTING) {
+    const { data: existingResult, error: resultError } = await supabase
+      .from('results')
+      .select('id, hr_review_status')
+      .eq('profile_id', payload.profileId)
+      .limit(1)
+      .maybeSingle();
 
-  if (resultError) {
-    console.error('Failed to check existing result:', resultError);
-    throw new Error('Khong the kiem tra trang thai danh gia.');
-  }
+    if (resultError) {
+      console.error('Failed to check existing result:', resultError);
+      throw new Error('Khong the kiem tra trang thai danh gia.');
+    }
 
-  if (existingResult) {
-    throw new Error('Ban da hoan thanh danh gia. Khong the lam lai.');
+    if (existingResult) {
+      throw new Error('Ban da hoan thanh danh gia. Khong the lam lai.');
+    }
   }
 
   const nowIso = new Date().toISOString();
@@ -356,6 +366,7 @@ export const finaliseAssessmentAttempt = async (
       strengths: analysis.strengths,
       weaknesses: analysis.developmentAreas,
       development_suggestions: analysis.developmentAreas,
+      recommended_roles: analysis.recommendedRoles,
       skill_scores: analysis.skillScores,
       summary: structuredSummary,
       ai_summary: analysis.summary,

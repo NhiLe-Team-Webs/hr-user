@@ -34,12 +34,14 @@ const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
 
   console.log('[ProtectedRoute]', {
     pathname: location.pathname,
+    user: user ? { id: user.id, email: user.email } : null,
     assessmentResult: !!assessmentResult,
     nextRoute,
     resolutionStatus,
   });
 
   if (!user) {
+    console.log('[ProtectedRoute] No user, redirecting to /login');
     return <Navigate to="/login" replace />;
   }
 
@@ -132,10 +134,13 @@ const useAssessmentResolution = (userId: string | undefined) => {
   const [status, setStatus] = useState<ResolutionStatus>(userId ? 'loading' : 'idle');
   const [nextRoute, setNextRoute] = useState<string | null>(null);
 
+  console.log('[useAssessmentResolution] userId:', userId, 'user:', user ? 'exists' : 'null');
+
   useEffect(() => {
     let isMounted = true;
 
     if (!userId || !user) {
+      console.log('[useAssessmentResolution] No userId or user, setting idle');
       setStatus('idle');
       setNextRoute(null);
       setSelectedRole(null);
@@ -152,17 +157,26 @@ const useAssessmentResolution = (userId: string | undefined) => {
     const resolve = async () => {
       try {
         // Ensure profile exists in database
+        console.log('[useAssessmentResolution] Ensuring profile...');
         await ensureProfile({
           id: userId,
           email: user.email ?? null,
           name: user.user_metadata?.name ?? user.user_metadata?.full_name ?? null,
         });
 
+        console.log('[useAssessmentResolution] Profile ensured, resolving state...');
         const resolution = await resolveAssessmentState({ profileId: userId, client: supabase });
 
         if (!isMounted) {
           return;
         }
+
+        console.log('[useAssessmentResolution] Resolution complete:', {
+          nextRoute: resolution.nextRoute,
+          hasRole: !!resolution.selectedRole,
+          hasResult: !!resolution.assessmentResult,
+          hasAttempt: !!resolution.activeAttempt,
+        });
 
         setSelectedRole(resolution.selectedRole);
         setActiveAttempt(resolution.activeAttempt);
@@ -170,10 +184,11 @@ const useAssessmentResolution = (userId: string | undefined) => {
         setNextRoute(resolution.nextRoute);
         setStatus('ready');
       } catch (error) {
-        console.error('Failed to resolve assessment state:', error);
+        console.error('[useAssessmentResolution] Failed to resolve assessment state:', error);
         if (!isMounted) {
           return;
         }
+        // Default to role-selection on error for new users
         setSelectedRole(null);
         setActiveAttempt(null);
         setAssessmentResult(null);
