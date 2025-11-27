@@ -13,8 +13,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
-import { resolveAssessmentState, getLatestResult } from '@/lib/api';
+import { resolveAssessmentState, getLatestResult, ensureProfile } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
+import type { Role } from '@/types/assessment';
 
 const FullScreenLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -31,6 +32,13 @@ const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
   const location = useLocation();
   const { status: resolutionStatus, nextRoute } = useAssessmentResolution(user?.id);
 
+  console.log('[ProtectedRoute]', {
+    pathname: location.pathname,
+    assessmentResult: !!assessmentResult,
+    nextRoute,
+    resolutionStatus,
+  });
+
   if (!user) {
     return <Navigate to="/login" replace />;
   }
@@ -39,12 +47,17 @@ const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
     return <FullScreenLoader />;
   }
 
+  // Only redirect to result if user has actual assessment result
+  // Don't block navigation to pre-assessment or role-selection
   const shouldRedirectToResult =
-    (assessmentResult || nextRoute === '/result') &&
+    assessmentResult &&
     location.pathname !== '/result' &&
-    location.pathname !== '/tryout';
+    location.pathname !== '/tryout' &&
+    location.pathname !== '/role-selection' &&
+    location.pathname !== '/pre-assessment';
 
   if (shouldRedirectToResult) {
+    console.log('[ProtectedRoute] Redirecting to /result');
     return <Navigate to="/result" replace />;
   }
 
@@ -115,13 +128,14 @@ type ResolutionStatus = 'idle' | 'loading' | 'ready';
 
 const useAssessmentResolution = (userId: string | undefined) => {
   const { setSelectedRole, setActiveAttempt, setAssessmentResult } = useAssessment();
+  const { user } = useAuth();
   const [status, setStatus] = useState<ResolutionStatus>(userId ? 'loading' : 'idle');
   const [nextRoute, setNextRoute] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
-    if (!userId) {
+    if (!userId || !user) {
       setStatus('idle');
       setNextRoute(null);
       setSelectedRole(null);
@@ -137,6 +151,13 @@ const useAssessmentResolution = (userId: string | undefined) => {
 
     const resolve = async () => {
       try {
+        // Ensure profile exists in database
+        await ensureProfile({
+          id: userId,
+          email: user.email ?? null,
+          name: user.user_metadata?.name ?? user.user_metadata?.full_name ?? null,
+        });
+
         const resolution = await resolveAssessmentState({ profileId: userId, client: supabase });
 
         if (!isMounted) {
@@ -167,7 +188,7 @@ const useAssessmentResolution = (userId: string | undefined) => {
       isMounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId, user]);
 
   return { status, nextRoute };
 };
@@ -214,8 +235,11 @@ const RoleSelectionRoute = () => {
   return (
     <RoleSelectionScreen
       onRoleSelect={(role) => {
+        console.log('[RoleSelectionRoute] Role selected:', role);
         setSelectedRole(role);
-        navigate('/pre-assessment');
+        console.log('[RoleSelectionRoute] Navigating to /pre-assessment');
+        // Navigate with state to ensure role is available immediately
+        navigate('/pre-assessment', { state: { role } });
       }}
     />
   );
@@ -223,15 +247,24 @@ const RoleSelectionRoute = () => {
 
 const PreAssessmentRoute = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { selectedRole } = useAssessment();
+  
+  // Try to get role from navigation state first, then from context
+  const role = (location.state as { role?: Role })?.role || selectedRole;
 
-  if (!selectedRole) {
+  console.log('[PreAssessmentRoute] role from state:', (location.state as { role?: Role })?.role);
+  console.log('[PreAssessmentRoute] selectedRole from context:', selectedRole);
+  console.log('[PreAssessmentRoute] final role:', role);
+
+  if (!role) {
+    console.log('[PreAssessmentRoute] No role, redirecting to /role-selection');
     return <Navigate to="/role-selection" replace />;
   }
 
   return (
     <PreAssessmentScreen
-      role={selectedRole}
+      role={role}
       onStartAssessment={() => {
         navigate('/assessment');
       }}

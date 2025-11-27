@@ -266,6 +266,11 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
               <p className="mt-3 max-w-2xl text-sm text-emerald-50 md:text-base">
                 {tryoutMessage}
               </p>
+              {!isHrApproved && (
+                <p className="mt-2 max-w-2xl text-xs text-emerald-100/80 italic">
+                  {t('resultScreen.cannotRetakeMessage')}
+                </p>
+              )}
             </div>
             {showTryoutButton && (
               <Button

@@ -148,6 +148,7 @@
     "hrStatusApproved": "HR đã duyệt",
     "hrStatusRejected": "HR từ chối",
     "tryoutCta": "Bắt đầu hành trình Tryout",
+    "cannotRetakeMessage": "Lưu ý: Bạn chỉ có thể làm bài đánh giá một lần duy nhất. Không thể làm lại.",
     "thankyou": "Cảm ơn bạn đã hoàn thành!",
     "missingTitle": "Chúng tôi chưa thể tìm thấy kết quả mới nhất của bạn.",
     "missingDescription": "Vui lòng hoàn thành bài đánh giá trước hoặc làm mới trang này khi kết quả của bạn đã sẵn sàng.",

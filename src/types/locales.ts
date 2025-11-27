@@ -81,6 +81,7 @@ type TranslationKey = {
     hrStatusApproved: string;
     hrStatusRejected: string;
     tryoutCta: string;
+    cannotRetakeMessage: string;
   };
   tryoutScreen: {
     title: string;

@@ -12,7 +12,7 @@ import { useAssessment } from '@/contexts/AssessmentContext';
 
 interface PreAssessmentScreenProps {
   role: Role;
-  onStartAssessment: (assessment: Assessment) => void;
+  onStartAssessment: (assessment: any) => void;
 }
 
 const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStartAssessment }) => {
@@ -20,7 +20,7 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
   const { user } = useAuth();
   const { setActiveAttempt } = useAssessment();
   const { t } = useLanguage();
-  const [assessment, setAssessment] = useState<Assessment | null>(null);
+  const [assessment, setAssessment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -69,6 +69,7 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
 
       setActiveAttempt({
         id: attempt.id,
+        assessmentId: attempt.assessmentId,
         status: attempt.status,
         answeredCount: attempt.answeredCount,
         totalQuestions: attempt.totalQuestions,
@@ -82,8 +83,24 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
       onStartAssessment(assessment);
     } catch (attemptError) {
       console.error('Failed to start assessment attempt:', attemptError);
+      const errorMessage = attemptError instanceof Error ? attemptError.message : t('preAssessmentScreen.errorDescription');
+      
+      // If user already has result, redirect to result page
+      if (errorMessage.includes('hoan thanh') || errorMessage.includes('lam lai')) {
+        toast({
+          title: 'Thông báo',
+          description: 'Bạn đã hoàn thành đánh giá. Đang chuyển đến trang kết quả...',
+          variant: 'default',
+        });
+        setTimeout(() => {
+          window.location.href = '/result';
+        }, 1500);
+        return;
+      }
+
       toast({
-        title: t('preAssessmentScreen.errorDescription'),
+        title: t('preAssessmentScreen.errorTitle'),
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {

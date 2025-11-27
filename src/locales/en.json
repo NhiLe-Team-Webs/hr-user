@@ -148,6 +148,7 @@
     "hrStatusApproved": "HR approved",
     "hrStatusRejected": "HR declined",
     "tryoutCta": "Start the Tryout journey",
+    "cannotRetakeMessage": "Note: You can only take the assessment once. Retakes are not allowed.",
     "thankyou": "Thank you for completing!",
     "missingTitle": "We could not find your latest results yet.",
     "missingDescription": "Please complete the assessment first or refresh this page once your results are ready.",

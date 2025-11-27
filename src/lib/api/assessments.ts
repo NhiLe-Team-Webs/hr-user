@@ -197,6 +197,23 @@ export const startAssessmentAttempt = async (payload: {
   role: string;
   totalQuestions: number;
 }): Promise<AssessmentAttempt> => {
+  // Check if user already has a completed result
+  const { data: existingResult, error: resultError } = await supabase
+    .from('results')
+    .select('id, hr_review_status')
+    .eq('profile_id', payload.profileId)
+    .limit(1)
+    .maybeSingle();
+
+  if (resultError) {
+    console.error('Failed to check existing result:', resultError);
+    throw new Error('Khong the kiem tra trang thai danh gia.');
+  }
+
+  if (existingResult) {
+    throw new Error('Ban da hoan thanh danh gia. Khong the lam lai.');
+  }
+
   const nowIso = new Date().toISOString();
   const existing = await fetchLatestAssessmentAttempt(payload.profileId, payload.assessmentId);
 
