@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LandingScreen from './LandingScreen';
 import LoginScreen from './LoginScreen';
@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
-import { resolveAssessmentState, getLatestResult, ensureProfile } from '@/lib/api';
+import { resolveAssessmentState, getLatestResult, ensureUser } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
 import type { Role } from '@/types/assessment';
 
@@ -28,15 +28,13 @@ const FullScreenLoader = () => (
 
 const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { user } = useAuth();
-  const { assessmentResult } = useAssessment();
+  const { assessmentResult, resolutionStatus } = useAssessment();
   const location = useLocation();
-  const { status: resolutionStatus, nextRoute } = useAssessmentResolution(user?.id);
 
   console.log('[ProtectedRoute]', {
     pathname: location.pathname,
     user: user ? { id: user.id, email: user.email } : null,
     assessmentResult: !!assessmentResult,
-    nextRoute,
     resolutionStatus,
   });
 
@@ -69,9 +67,12 @@ const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
 const Router = () => {
   const location = useLocation();
   const { status } = useAuth();
-  const { isHydrated } = useAssessment();
+  const { isHydrated, resolutionStatus } = useAssessment();
 
-  if (status !== 'ready' || !isHydrated) {
+  // Call resolution hook once at the Router level
+  useGlobalAssessmentResolution();
+
+  if (status !== 'ready' || !isHydrated || resolutionStatus === 'loading') {
     return <FullScreenLoader />;
   }
 
@@ -105,6 +106,14 @@ const Router = () => {
           )}
         />
         <Route
+          path="/assessment/:roleName/q/:questionIndex"
+          element={(
+            <ProtectedRoute>
+              <AssessmentRoute />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/result"
           element={(
             <ProtectedRoute>
@@ -126,22 +135,23 @@ const Router = () => {
   );
 };
 
-type ResolutionStatus = 'idle' | 'loading' | 'ready';
-
-const useAssessmentResolution = (userId: string | undefined) => {
-  const { setSelectedRole, setActiveAttempt, setAssessmentResult } = useAssessment();
+// Global resolution hook - called once at the Router level
+const useGlobalAssessmentResolution = () => {
   const { user } = useAuth();
-  const [status, setStatus] = useState<ResolutionStatus>(userId ? 'loading' : 'idle');
-  const [nextRoute, setNextRoute] = useState<string | null>(null);
+  const { setSelectedRole, setActiveAttempt, setAssessmentResult, setResolutionStatus, setNextRoute } = useAssessment();
+  const userId = user?.id;
 
-  console.log('[useAssessmentResolution] userId:', userId, 'user:', user ? 'exists' : 'null');
+  const userRef = React.useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
     let isMounted = true;
 
-    if (!userId || !user) {
-      console.log('[useAssessmentResolution] No userId or user, setting idle');
-      setStatus('idle');
+    if (!userId) {
+      console.log('[useGlobalAssessmentResolution] No userId, setting idle');
+      setResolutionStatus('idle');
       setNextRoute(null);
       setSelectedRole(null);
       setActiveAttempt(null);
@@ -151,27 +161,28 @@ const useAssessmentResolution = (userId: string | undefined) => {
       };
     }
 
-    setStatus('loading');
+    setResolutionStatus('loading');
     setNextRoute(null);
 
     const resolve = async () => {
       try {
-        // Ensure profile exists in database
-        console.log('[useAssessmentResolution] Ensuring profile...');
-        await ensureProfile({
-          id: userId,
-          email: user.email ?? null,
-          name: user.user_metadata?.name ?? user.user_metadata?.full_name ?? null,
+        const currentUser = userRef.current;
+        // Ensure user exists in database
+        console.log('[useGlobalAssessmentResolution] Ensuring user...');
+        await ensureUser({
+          auth_id: userId,
+          email: currentUser?.email ?? null,
+          full_name: currentUser?.user_metadata?.name ?? currentUser?.user_metadata?.full_name ?? null,
         });
 
-        console.log('[useAssessmentResolution] Profile ensured, resolving state...');
-        const resolution = await resolveAssessmentState({ profileId: userId, client: supabase });
+        console.log('[useGlobalAssessmentResolution] User ensured, resolving state...');
+        const resolution = await resolveAssessmentState({ userId, client: supabase });
 
         if (!isMounted) {
           return;
         }
 
-        console.log('[useAssessmentResolution] Resolution complete:', {
+        console.log('[useGlobalAssessmentResolution] Resolution complete:', {
           nextRoute: resolution.nextRoute,
           hasRole: !!resolution.selectedRole,
           hasResult: !!resolution.assessmentResult,
@@ -182,9 +193,9 @@ const useAssessmentResolution = (userId: string | undefined) => {
         setActiveAttempt(resolution.activeAttempt);
         setAssessmentResult(resolution.assessmentResult);
         setNextRoute(resolution.nextRoute);
-        setStatus('ready');
+        setResolutionStatus('ready');
       } catch (error) {
-        console.error('[useAssessmentResolution] Failed to resolve assessment state:', error);
+        console.error('[useGlobalAssessmentResolution] Failed to resolve assessment state:', error);
         if (!isMounted) {
           return;
         }
@@ -193,7 +204,7 @@ const useAssessmentResolution = (userId: string | undefined) => {
         setActiveAttempt(null);
         setAssessmentResult(null);
         setNextRoute('/role-selection');
-        setStatus('ready');
+        setResolutionStatus('ready');
       }
     };
 
@@ -203,18 +214,16 @@ const useAssessmentResolution = (userId: string | undefined) => {
       isMounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, user]);
-
-  return { status, nextRoute };
+  }, [userId]);
 };
 
 const LandingRoute = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { status, nextRoute } = useAssessmentResolution(user?.id);
+  const { resolutionStatus, nextRoute } = useAssessment();
 
   if (user) {
-    if (status !== 'ready' || !nextRoute) {
+    if (resolutionStatus !== 'ready' || !nextRoute) {
       return <FullScreenLoader />;
     }
     return <Navigate to={nextRoute} replace />;
@@ -231,10 +240,10 @@ const LandingRoute = () => {
 
 const LoginRoute = () => {
   const { user } = useAuth();
-  const { status, nextRoute } = useAssessmentResolution(user?.id);
+  const { resolutionStatus, nextRoute } = useAssessment();
 
   if (user) {
-    if (status !== 'ready' || !nextRoute) {
+    if (resolutionStatus !== 'ready' || !nextRoute) {
       return <FullScreenLoader />;
     }
     return <Navigate to={nextRoute} replace />;
@@ -264,7 +273,7 @@ const PreAssessmentRoute = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { selectedRole } = useAssessment();
-  
+
   // Try to get role from navigation state first, then from context
   const role = (location.state as { role?: Role })?.role || selectedRole;
 
@@ -281,7 +290,7 @@ const PreAssessmentRoute = () => {
     <PreAssessmentScreen
       role={role}
       onStartAssessment={() => {
-        navigate('/assessment');
+        navigate(`/assessment/${role.name}/q/1`);
       }}
     />
   );
@@ -289,15 +298,41 @@ const PreAssessmentRoute = () => {
 
 const AssessmentRoute = () => {
   const navigate = useNavigate();
-  const { selectedRole } = useAssessment();
+  const { roleName, questionIndex } = useParams();
+  const { selectedRole, setSelectedRole } = useAssessment();
 
-  if (!selectedRole) {
+  useEffect(() => {
+    if (roleName && (!selectedRole || selectedRole.name !== roleName)) {
+      // If URL has role but context doesn't (e.g. direct link), try to set it or fetch it?
+      // For now, we rely on AssessmentScreen to handle data fetching based on roleName.
+      // But AssessmentScreen takes `role` object.
+      // We might need to fetch role details if not in context.
+      // However, AssessmentScreen only needs role.name for fetching assessment.
+      // Let's construct a minimal role object if needed, or update AssessmentScreen to take roleName string.
+    }
+  }, [roleName, selectedRole]);
+
+  if (!roleName || !questionIndex) {
+    // Legacy route /assessment
+    if (selectedRole) {
+      return <Navigate to={`/assessment/${selectedRole.name}/q/1`} replace />;
+    }
     return <Navigate to="/role-selection" replace />;
   }
 
+  // If we have params, render screen.
+  // We pass roleName to AssessmentScreen.
+  // Note: AssessmentScreen currently takes `role: Role`.
+  // We should update AssessmentScreen to take `roleName` or construct a dummy role.
+  // Since AssessmentScreen fetches assessment by role.name, a dummy object with name is enough?
+  // Or better: Update AssessmentScreen to accept roleName.
+
+  const roleObj = selectedRole || { id: '', name: roleName, title: roleName };
+
   return (
     <AssessmentScreen
-      role={selectedRole}
+      role={roleObj}
+      questionIndexParam={Number(questionIndex)}
       onFinish={() => {
         navigate('/result');
       }}
@@ -325,7 +360,6 @@ const ResultRoute = () => {
       const latest = await getLatestResult(user.id, activeAttempt?.assessmentId);
       if (latest) {
         setAssessmentResult({
-          score: latest.score,
           summary: latest.summary,
           strengths: latest.strengths,
           developmentAreas: latest.developmentAreas,
@@ -334,6 +368,7 @@ const ResultRoute = () => {
           developmentSuggestions: latest.developmentSuggestions,
           completedAt: latest.completedAt ?? latest.createdAt,
           hrApprovalStatus: latest.hrApprovalStatus,
+          teamFit: latest.teamFit,
         });
       } else {
         setAssessmentResult(null);

@@ -16,7 +16,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
   const { t } = useLanguage();
   const { toast } = useToast();
   const { user } = useAuth();
-  const [roles, setRoles] = useState<string[]>([]);
+  const [roles, setRoles] = useState<{ name: string; title: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasResult, setHasResult] = useState(false);
@@ -95,7 +95,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
     'Customer Support': <HeartHandshake className="w-10 h-10 text-primary mb-4 mx-auto" />,
     'Operations': <ClipboardList className="w-10 h-10 text-primary mb-4 mx-auto" />,
   };
-  
+
   return (
     <motion.div
       key="role-selection"
@@ -110,17 +110,17 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onRoleSelect 
         {t('roleSelectionScreen.subtitle')}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {roles.map(roleName => (
+        {roles.map(role => (
           <div
-            key={roleName}
+            key={role.name}
             onClick={() => {
-              console.log('[RoleSelection] Role clicked:', roleName);
-              onRoleSelect({ name: roleName, title: roleName });
+              console.log('[RoleSelection] Role clicked:', role.name);
+              onRoleSelect({ name: role.name, title: role.title });
             }}
             className="p-6 text-center bg-muted/50 rounded-2xl hover:ring-2 ring-primary cursor-pointer transition-all transform hover:-translate-y-1"
           >
-            {roleIcons[roleName as keyof typeof roleIcons] || <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />}
-            <h3 className="text-xl font-bold mb-2">{roleName}</h3>
+            {roleIcons[role.name as keyof typeof roleIcons] || <PencilRuler className="w-10 h-10 text-primary mb-4 mx-auto" />}
+            <h3 className="text-xl font-bold mb-2">{role.title}</h3>
             <p className="text-muted-foreground text-sm">
               {/* Đây là nơi bạn có thể thêm mô tả động nếu cần */}
             </p>

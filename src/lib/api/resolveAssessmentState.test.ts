@@ -71,7 +71,7 @@ const expectResolution = async (
   matcher: Partial<AssessmentResolution>,
 ) => {
   const { resolveAssessmentState } = await loadModule();
-  const resolution = await resolveAssessmentState({ profileId: 'user-1', client: client as never });
+  const resolution = await resolveAssessmentState({ userId: 'user-1', client: client as never });
   for (const [key, value] of Object.entries(matcher)) {
     assert.deepEqual((resolution as unknown as Record<string, unknown>)[key], value);
   }
@@ -84,7 +84,6 @@ describe('resolveAssessmentState', () => {
       resultResponse: {
         data: {
           id: 'result-1',
-          overall_score: 92,
           strengths: ['Focus', 'Collaboration'],
           assessment: [{ target_role: 'Content Creator' }],
         },
@@ -96,7 +95,6 @@ describe('resolveAssessmentState', () => {
     const resolution = await expectResolution(client, {
       nextRoute: '/result',
       assessmentResult: {
-        score: 92,
         summary: null,
         strengths: ['Focus', 'Collaboration'],
         developmentAreas: [],
@@ -104,6 +102,8 @@ describe('resolveAssessmentState', () => {
         recommendedRoles: [],
         developmentSuggestions: [],
         completedAt: null,
+        hrApprovalStatus: 'pending',
+        teamFit: [],
       },
       selectedRole: { name: 'Content Creator', title: 'Content Creator' },
       activeAttempt: null,
@@ -115,7 +115,7 @@ describe('resolveAssessmentState', () => {
   it('returns in-progress attempt when no result exists', async () => {
     const attemptRow: AssessmentAttemptRow = {
       id: 'attempt-1',
-      profile_id: 'user-1',
+      user_id: 'user-1',
       assessment_id: 'assessment-1',
       role: 'Customer Support',
       status: 'in_progress',

@@ -1,0 +1,114 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+const createMockClient = (options) => ({
+    from: (table) => {
+        if (table === 'results') {
+            const builder = {
+                select: () => builder,
+                eq: () => builder,
+                order: () => builder,
+                limit: () => builder,
+                maybeSingle: () => Promise.resolve(options.resultResponse),
+            };
+            return builder;
+        }
+        if (table === 'assessment_attempts') {
+            const builder = {
+                select: () => builder,
+                eq: () => builder,
+                order: () => builder,
+                limit: () => builder,
+                maybeSingle: () => Promise.resolve(options.attemptResponse),
+            };
+            builder.is = () => builder;
+            builder.neq = () => builder;
+            return builder;
+        }
+        throw new Error(`Unexpected table ${table}`);
+    },
+});
+const loadModule = async () => {
+    process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL ?? 'http://localhost';
+    process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY ?? 'anon-key';
+    return import('./resolveAssessmentState.js');
+};
+const expectResolution = async (client, matcher) => {
+    const { resolveAssessmentState } = await loadModule();
+    const resolution = await resolveAssessmentState({ userId: 'user-1', client: client });
+    for (const [key, value] of Object.entries(matcher)) {
+        assert.deepEqual(resolution[key], value);
+    }
+    return resolution;
+};
+describe('resolveAssessmentState', () => {
+    it('prioritises existing assessment results', async () => {
+        const client = createMockClient({
+            resultResponse: {
+                data: {
+                    id: 'result-1',
+                    strengths: ['Focus', 'Collaboration'],
+                    assessment: [{ target_role: 'Content Creator' }],
+                },
+                error: null,
+            },
+            attemptResponse: { data: null, error: null },
+        });
+        const resolution = await expectResolution(client, {
+            nextRoute: '/result',
+            assessmentResult: {
+                summary: null,
+                strengths: ['Focus', 'Collaboration'],
+                developmentAreas: [],
+                skillScores: [],
+                recommendedRoles: [],
+                developmentSuggestions: [],
+                completedAt: null,
+                hrApprovalStatus: 'pending',
+                teamFit: [],
+            },
+            selectedRole: { name: 'Content Creator', title: 'Content Creator' },
+            activeAttempt: null,
+        });
+        assert.equal(resolution.activeAttempt, null);
+    });
+    it('returns in-progress attempt when no result exists', async () => {
+        const attemptRow = {
+            id: 'attempt-1',
+            user_id: 'user-1',
+            assessment_id: 'assessment-1',
+            role: 'Customer Support',
+            status: 'in_progress',
+            answered_count: 3,
+            total_questions: 10,
+            progress_percent: 30,
+            started_at: '2024-01-01T00:00:00.000Z',
+            submitted_at: null,
+            completed_at: null,
+            last_activity_at: '2024-01-01T01:00:00.000Z',
+        };
+        const client = createMockClient({
+            resultResponse: { data: null, error: null },
+            attemptResponse: { data: attemptRow, error: null },
+        });
+        const resolution = await expectResolution(client, {
+            nextRoute: '/assessment',
+            selectedRole: { name: 'Customer Support', title: 'Customer Support' },
+            assessmentResult: null,
+        });
+        assert.notEqual(resolution.activeAttempt, null);
+        assert.equal(resolution.activeAttempt?.id, 'attempt-1');
+        assert.equal(resolution.activeAttempt?.progressPercent, 30);
+    });
+    it('falls back to role selection when nothing is available', async () => {
+        const client = createMockClient({
+            resultResponse: { data: null, error: null },
+            attemptResponse: { data: null, error: null },
+        });
+        await expectResolution(client, {
+            nextRoute: '/role-selection',
+            selectedRole: null,
+            assessmentResult: null,
+            activeAttempt: null,
+        });
+    });
+});

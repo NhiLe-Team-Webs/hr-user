@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { useToast } from './ui/use-toast';
 import { useLanguage } from '../hooks/useLanguage';
 import { Clock, ListChecks } from 'lucide-react';
-import { getAssessment, ensureProfile, startAssessmentAttempt } from '../lib/api';
+import { getAssessment, ensureUser, startAssessmentAttempt } from '../lib/api';
 import { Role, Assessment } from '../types/assessment';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAssessment } from '@/contexts/AssessmentContext';
@@ -18,7 +18,7 @@ interface PreAssessmentScreenProps {
 const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStartAssessment }) => {
   const { toast } = useToast();
   const { user } = useAuth();
-  const { setActiveAttempt } = useAssessment();
+  const { setActiveAttempt, setSelectedRole } = useAssessment();
   const { t } = useLanguage();
   const [assessment, setAssessment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -54,16 +54,17 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
 
     try {
       setIsStarting(true);
-      await ensureProfile({
-        id: user.id,
+      await ensureUser({
+        auth_id: user.id,
         email: user.email ?? null,
-        name: (user.user_metadata?.full_name as string | undefined) ?? user.email ?? null,
+        full_name: (user.user_metadata?.full_name as string | undefined) ?? user.email ?? null,
       });
 
       const attempt = await startAssessmentAttempt({
-        profileId: user.id,
+        userId: user.id,
         assessmentId: assessment.id,
         role: role.name,
+        roleId: assessment.id, // roleId is the assessment ID since roles are defined by assessments
         totalQuestions: assessment.questions.length,
       });
 
@@ -80,11 +81,14 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
         lastActivityAt: attempt.lastActivityAt,
       });
 
+      setSelectedRole(role);
+      // Clear any stale assessment state from previous sessions
+      sessionStorage.removeItem('assessmentState');
       onStartAssessment(assessment);
     } catch (attemptError) {
       console.error('Failed to start assessment attempt:', attemptError);
       const errorMessage = attemptError instanceof Error ? attemptError.message : t('preAssessmentScreen.errorDescription');
-      
+
       // If user already has result, redirect to result page
       if (errorMessage.includes('hoan thanh') || errorMessage.includes('lam lai')) {
         toast({
@@ -140,18 +144,18 @@ const PreAssessmentScreen: React.FC<PreAssessmentScreenProps> = ({ role, onStart
 
   if (!assessment || !assessment.questions) {
     return (
-        <motion.div
-          key="no-assessment-data"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center apple-card p-8 md:p-12 max-w-lg mx-auto text-red-500"
-        >
-          <p>{t('preAssessmentScreen.noAssessment')}</p>
-        </motion.div>
+      <motion.div
+        key="no-assessment-data"
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="text-center apple-card p-8 md:p-12 max-w-lg mx-auto text-red-500"
+      >
+        <p>{t('preAssessmentScreen.noAssessment')}</p>
+      </motion.div>
     );
   }
 
-  const durationInMinutes = Math.floor(assessment.duration / 60);
+  const durationInMinutes = assessment.duration;
   const numberOfQuestions = assessment.questions.length;
 
   return (

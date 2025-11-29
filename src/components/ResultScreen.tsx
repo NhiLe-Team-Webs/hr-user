@@ -36,9 +36,6 @@ const formatCompletedAt = (value: string | null, locale: string): string | null 
 const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
   const { t, lang } = useLanguage();
 
-  const score = typeof result.score === 'number' && Number.isFinite(result.score)
-    ? Math.round(result.score)
-    : null;
   const completedLabel = formatCompletedAt(result.completedAt, lang);
   const summaryText = result.summary && result.summary.trim().length > 0
     ? result.summary
@@ -47,6 +44,7 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
   const developmentAreas = result.developmentAreas;
   const skillScores = result.skillScores;
   const recommendedRoles = result.recommendedRoles;
+  const teamFit = result.teamFit ?? [];
   const developmentSuggestions = result.developmentSuggestions;
   const hrApprovalStatus = result.hrApprovalStatus ?? 'pending';
   const isHrApproved = hrApprovalStatus === 'approved';
@@ -124,6 +122,30 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
             )}
           </div>
         </section>
+
+        {teamFit.length > 0 && (
+          <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-lg shadow-blue-100/40">
+            <div className="flex items-center gap-3">
+              <Target className="h-6 w-6 text-blue-500" />
+              <h3 className="text-xl font-semibold text-slate-900">
+                {t('resultScreen.teamFitTitle') || 'Vị trí phù hợp'}
+              </h3>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">
+              {t('resultScreen.teamFitDescription') || 'Các vị trí được đề xuất dựa trên kết quả đánh giá của bạn.'}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {teamFit.map((team) => (
+                <span
+                  key={team}
+                  className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm"
+                >
+                  {team}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-3xl border border-white/80 bg-white/90 p-8 shadow-lg shadow-sky-100/40">
           <div className="flex items-center gap-3">

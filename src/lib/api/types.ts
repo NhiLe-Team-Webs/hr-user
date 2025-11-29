@@ -15,9 +15,6 @@ export interface CandidateInfo {
   role: string | null;
   band: string | null;
   avatarChar: string;
-  scores: {
-    overall: number | null;
-  };
   status: 'completed' | 'in_progress';
   startTime: Date;
   phone: string;
@@ -26,6 +23,7 @@ export interface CandidateInfo {
 
 export interface AnswerRow {
   id: string;
+  attempt_id: string | null;
   result_id: string | null;
   question_id: string;
   user_answer_text: string | null;
@@ -44,7 +42,7 @@ export interface AnswerInput {
 
 export interface AssessmentAttemptRow {
   id: string;
-  profile_id: string;
+  user_id: string;
   assessment_id: string;
   role: string;
   status: string;
@@ -57,6 +55,11 @@ export interface AssessmentAttemptRow {
   last_activity_at: string | null;
   last_ai_error?: string | null;
   ai_status?: string | null;
+  duration_seconds?: number | null;
+  average_seconds_per_question?: number | null;
+  question_timings?: unknown;
+  cheating_count?: number | null;
+  cheating_events?: unknown;
 }
 
 export type QuestionsByRole = Record<string, Question[]>;
