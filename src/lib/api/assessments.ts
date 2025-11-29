@@ -368,12 +368,15 @@ export interface CheatingEvent {
 }
 
 export interface AnswerSnapshotItem {
+  questionNumber: number;
   questionId: string;
   questionText: string;
   questionFormat: string;
-  userAnswer: string;
-  selectedOptionIndex?: number;
-  allOptions?: string[];
+  userAnswer: string | null;
+  selectedOptionIndex?: number | null;
+  allOptions: string[];
+  correctAnswer?: string | null;
+  isCorrect?: boolean | null;
   answeredAt: string;
 }
 
@@ -470,6 +473,11 @@ export const finaliseAssessmentAttempt = async (
       console.error('Failed to persist assessment result:', resultError);
       throw new Error('Khong the luu ket qua danh gia.');
     }
+
+    console.log('[finaliseAssessmentAttempt] Saving answers_snapshot:', {
+      count: payload.answersSnapshot?.length ?? 0,
+      snapshot: payload.answersSnapshot,
+    });
 
     const { data: attemptData, error: attemptError } = await supabase
       .from('interview_assessment_attempts')
