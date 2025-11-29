@@ -13,6 +13,7 @@ import {
   finaliseAssessmentAttempt,
   getLatestResult,
   type FinaliseAssessmentOptions,
+  updateAssessmentAttemptMeta,
 } from '../lib/api';
 import { Role, UserAnswers, Question, AnswerValue, Assessment } from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
@@ -61,6 +62,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const [tabViolations, setTabViolations] = useState(0);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [hasTimerStarted, setHasTimerStarted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
   const [isFinalising, setIsFinalising] = useState(false);
@@ -79,15 +81,18 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const [cheatingEvents, setCheatingEvents] = useState<CheatingEvent[]>([]);
 
   const ensureAnswerPersisted = useCallback(
-    async (questionIndex: number, overrideRawValue?: AnswerValue) => {
+    async (
+      questionIndex: number,
+      options?: { overrideRawValue?: AnswerValue; timeSpentSeconds?: number | null },
+    ) => {
       const question = questions[questionIndex];
       if (!question || !activeAttempt) {
         return;
       }
 
       const rawValue =
-        typeof overrideRawValue !== 'undefined'
-          ? overrideRawValue
+        typeof options?.overrideRawValue !== 'undefined'
+          ? options.overrideRawValue
           : userAnswers[questionIndex];
 
       if (
@@ -118,8 +123,24 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         persistedValue = textValue;
       }
 
+      const storedTime = questionTimeSpentRef.current[question.id];
+      const timeSpentOverride =
+        typeof options?.timeSpentSeconds === 'number'
+          ? options.timeSpentSeconds
+          : typeof storedTime === 'number'
+            ? storedTime
+            : null;
+      const normalisedTimeSpent =
+        typeof timeSpentOverride === 'number'
+          ? Math.max(0, Math.round(timeSpentOverride))
+          : null;
+
       const existingRecord = answerRecords[question.id];
-      if (existingRecord && existingRecord.value === persistedValue) {
+      const shouldUpdateTime =
+        typeof normalisedTimeSpent === 'number' &&
+        normalisedTimeSpent !== (existingRecord?.timeSpentSeconds ?? null);
+
+      if (existingRecord && existingRecord.value === persistedValue && !shouldUpdateTime) {
         return;
       }
 
@@ -130,12 +151,23 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           questionId: question.id,
           selectedOptionId,
           userAnswerText,
+          timeSpentSeconds:
+            typeof normalisedTimeSpent === 'number' ? normalisedTimeSpent : undefined,
         });
 
         if (result?.id) {
           setAnswerRecords((prev) => ({
             ...prev,
-            [question.id]: { id: result.id, value: persistedValue },
+            [question.id]: {
+              id: result.id,
+              value: persistedValue,
+              timeSpentSeconds:
+                typeof result.time_spent_seconds === 'number'
+                  ? result.time_spent_seconds
+                  : typeof normalisedTimeSpent === 'number'
+                    ? normalisedTimeSpent
+                    : existingRecord?.timeSpentSeconds ?? null,
+            },
           }));
           updateActiveAttempt({ lastActivityAt: new Date().toISOString() });
         }
@@ -145,12 +177,80 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     },
     [activeAttempt, answerRecords, questions, updateActiveAttempt, userAnswers],
   );
+  const getTimeSpentForQuestion = useCallback(
+    (questionIndex: number): number | null => {
+      const question = questions[questionIndex];
+      if (!question) {
+        return null;
+      }
+      const stored = questionTimeSpentRef.current[question.id];
+      return typeof stored === 'number' ? stored : null;
+    },
+    [questions],
+  );
+
+  const accumulateTimeForQuestion = useCallback(
+    (questionIndex: number): number | null => {
+      const question = questions[questionIndex];
+      if (!question) {
+        return null;
+      }
+
+      const startTimestamp = questionStartTimeRef.current;
+      if (typeof startTimestamp !== 'number') {
+        return getTimeSpentForQuestion(questionIndex);
+      }
+
+      const elapsedSeconds = Math.max(0, Math.round((Date.now() - startTimestamp) / 1000));
+      const previousTotal = questionTimeSpentRef.current[question.id] ?? 0;
+      const newTotal = previousTotal + elapsedSeconds;
+      questionTimeSpentRef.current[question.id] = newTotal;
+      questionStartTimeRef.current = null;
+      return newTotal;
+    },
+    [getTimeSpentForQuestion, questions],
+  );
+
+  const calculateTotalDuration = useCallback(() => {
+    return Object.values(questionTimeSpentRef.current).reduce((sum, value) => {
+      return sum + (typeof value === 'number' ? value : 0);
+    }, 0);
+  }, []);
+
   const persistAllAnswers = useCallback(async () => {
     if (!activeAttempt) {
       return;
     }
-    await Promise.all(questions.map((_, index) => ensureAnswerPersisted(index)));
-  }, [activeAttempt, questions, ensureAnswerPersisted]);
+
+    await Promise.all(
+      questions.map((_, index) => {
+        const timeSpent = getTimeSpentForQuestion(index);
+        return ensureAnswerPersisted(index, {
+          timeSpentSeconds: typeof timeSpent === 'number' ? timeSpent : undefined,
+        });
+      }),
+    );
+  }, [activeAttempt, ensureAnswerPersisted, getTimeSpentForQuestion, questions]);
+
+  const persistCheatingCount = useCallback(
+    async (count: number) => {
+      if (!activeAttempt) {
+        return;
+      }
+
+      if (activeAttempt.cheatingCount === count) {
+        return;
+      }
+
+      try {
+        await updateAssessmentAttemptMeta(activeAttempt.id, { cheatingCount: count });
+        updateActiveAttempt({ cheatingCount: count });
+      } catch (error) {
+        console.error('Failed to update cheating count for attempt', activeAttempt.id, error);
+      }
+    },
+    [activeAttempt, updateActiveAttempt],
+  );
 
   useEffect(() => {
     return () => {
@@ -158,6 +258,36 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       finalisePayloadRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    setTabViolations(activeAttempt?.cheatingCount ?? 0);
+  }, [activeAttempt?.cheatingCount]);
+
+  useEffect(() => {
+    setHasTimerStarted(false);
+  }, [activeAttempt?.id]);
+
+  useEffect(() => {
+    questionTimeSpentRef.current = {};
+    questionStartTimeRef.current = null;
+    activeQuestionIdRef.current = null;
+  }, [activeAttempt?.id]);
+
+  useEffect(() => {
+    const question = questions[currentQuestionIndex];
+    if (!question) {
+      activeQuestionIdRef.current = null;
+      questionStartTimeRef.current = null;
+      return;
+    }
+
+    if (activeQuestionIdRef.current !== question.id) {
+      activeQuestionIdRef.current = question.id;
+      questionStartTimeRef.current = Date.now();
+    } else if (questionStartTimeRef.current === null) {
+      questionStartTimeRef.current = Date.now();
+    }
+  }, [currentQuestionIndex, questions]);
 
   const runAiAnalysis = useCallback(async () => {
     const payload = finalisePayloadRef.current;
@@ -329,6 +459,12 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     updateQuestionTiming();
 
     await persistAllAnswers();
+    await persistCheatingCount(tabViolations);
+
+    const totalDurationSeconds = Math.max(0, Math.round(calculateTotalDuration()));
+    const totalQuestions = questions.length || activeAttempt.totalQuestions || 0;
+    const averageSecondsPerQuestion =
+      totalQuestions > 0 ? totalDurationSeconds / totalQuestions : null;
 
     if (isMountedRef.current) {
       setSubmissionError(null);
@@ -336,7 +472,11 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     }
 
     try {
-      const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id);
+      const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id, {
+        durationSeconds: totalDurationSeconds,
+        averageSecondsPerQuestion,
+        cheatingCount: tabViolations,
+      });
       updateActiveAttempt(updatedAttempt);
 
       const answersForGemini = questions
@@ -482,10 +622,16 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     getAiErrorMessage,
     lang,
     onFinish,
+    accumulateTimeForQuestion,
+    calculateTotalDuration,
+    currentQuestionIndex,
+    ensureAnswerPersisted,
     persistAllAnswers,
+    persistCheatingCount,
     questions,
     role.name,
     runAiAnalysis,
+    tabViolations,
     updateActiveAttempt,
     user,
     userAnswers,
