@@ -15,7 +15,7 @@ import {
   type FinaliseAssessmentOptions,
   updateAssessmentAttemptMeta,
 } from '../lib/api';
-import { Role, UserAnswers, Question, AnswerValue, Assessment } from '../types/assessment';
+import { Role, UserAnswers, Question, AnswerValue, Assessment, AssessmentResult } from '../types/assessment';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAssessment } from '@/contexts/AssessmentContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -56,7 +56,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const activeQuestionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    console.log('[AssessmentScreen] Mounted. activeAttempt:', activeAttempt?.id, 'role:', role.name);
+    // Component mounted
   }, [activeAttempt, role]);
 
   const currentQuestion = questions[currentQuestionIndex];
@@ -92,6 +92,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     ) => {
       const question = questions[questionIndex];
       if (!question || !activeAttempt) {
+        // Early return - no question or attempt
         return;
       }
 
@@ -100,6 +101,8 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           ? options.overrideRawValue
           : userAnswers[questionIndex];
 
+      // Processing answer persistence
+
       if (
         typeof rawValue === 'undefined' ||
         rawValue === null ||
@@ -107,6 +110,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           typeof rawValue === 'string' &&
           rawValue.trim() === '')
       ) {
+        // Early return - empty value
         return;
       }
 
@@ -177,7 +181,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           updateActiveAttempt({ lastActivityAt: new Date().toISOString() });
         }
       } catch (error) {
-        console.error('Failed to persist answer for question', question.id, error);
+        // Failed to persist answer
       }
     },
     [activeAttempt, answerRecords, questions, updateActiveAttempt, userAnswers],
@@ -227,15 +231,21 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       return;
     }
 
+
     await Promise.all(
       questions.map((_, index) => {
         const timeSpent = getTimeSpentForQuestion(index);
+        const rawValue = userAnswers[index];
+        
+        // Persisting all answers
+        
         return ensureAnswerPersisted(index, {
+          overrideRawValue: rawValue, // Explicitly pass the value
           timeSpentSeconds: typeof timeSpent === 'number' ? timeSpent : undefined,
         });
       }),
     );
-  }, [activeAttempt, ensureAnswerPersisted, getTimeSpentForQuestion, questions]);
+  }, [activeAttempt, ensureAnswerPersisted, getTimeSpentForQuestion, questions, userAnswers]);
 
   const persistCheatingCount = useCallback(
     async (count: number) => {
@@ -251,7 +261,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         await updateAssessmentAttemptMeta(activeAttempt.id, { cheatingCount: count });
         updateActiveAttempt({ cheatingCount: count });
       } catch (error) {
-        console.error('Failed to update cheating count for attempt', activeAttempt.id, error);
+        // Failed to update cheating count
       }
     },
     [activeAttempt, updateActiveAttempt],
@@ -332,7 +342,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         setAssessmentResult(result.result);
       }
     } catch (error) {
-      console.error('Failed to refresh latest assessment result:', error);
+      // Failed to refresh latest assessment result
       if (isMountedRef.current) {
         setAssessmentResult(result.result);
       }
@@ -380,20 +390,56 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     try {
       await runAiAnalysis();
     } catch (error) {
-      console.error('Failed to retry AI analysis:', error);
-      if (isMountedRef.current) {
-        setSubmissionError(getAiErrorMessage(error));
-      }
+      // Failed to retry AI analysis
+      
+      // Check if this is a GeminiApiError with retry information
+      const isGeminiError = error instanceof GeminiApiError;
+      const retryCount = isGeminiError && error.payload && typeof error.payload === 'object'
+        ? (error.payload as { retryCount?: number }).retryCount
+        : 0;
+      
+      // Update attempt status to indicate AI failure
       updateActiveAttempt({
         aiStatus: 'failed',
         lastAiError: error instanceof Error ? error.message : null,
       });
+      
+      // If we've exhausted retries (3 attempts), redirect to results screen
+      if (retryCount >= 3) {
+        // Retry limit reached in retry, redirecting to results screen
+        
+        // Create a partial result without AI analysis
+        const partialResult: AssessmentResult = {
+          summary: null,
+          strengths: [],
+          developmentAreas: [],
+          skillScores: [],
+          recommendedRoles: [],
+          developmentSuggestions: [],
+          completedAt: new Date().toISOString(),
+          hrApprovalStatus: 'pending',
+          teamFit: null,
+          aiAnalysisAvailable: false,
+        };
+        
+        setAssessmentResult(partialResult);
+        
+        if (isMountedRef.current) {
+          setIsFinalising(false);
+          onFinish(); // Navigate to results screen
+        }
+      } else {
+        // Show error dialog for retry
+        if (isMountedRef.current) {
+          setSubmissionError(getAiErrorMessage(error));
+        }
+      }
     } finally {
       if (isMountedRef.current) {
         setIsFinalising(false);
       }
     }
-  }, [getAiErrorMessage, runAiAnalysis, updateActiveAttempt]);
+  }, [getAiErrorMessage, runAiAnalysis, updateActiveAttempt, setAssessmentResult, onFinish]);
 
 
   const [questionTimings, setQuestionTimings] = useState<Record<string, number>>({});
@@ -453,15 +499,23 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   }, [currentQuestionIndex]);
 
   const finishAssessment = useCallback(async () => {
-    console.log('[AssessmentScreen] finishAssessment called. activeAttempt:', !!activeAttempt, 'assessment:', !!assessment);
+    // finishAssessment called
     if (!activeAttempt || !assessment || !assessment.id || !user) {
-      console.warn('[AssessmentScreen] Missing required data for finishAssessment, redirecting to RoleSelection');
+      // Missing required data for finishAssessment, redirecting to RoleSelection
       navigate('/role-selection');
       return;
     }
 
     // Update timing for the last question
     updateQuestionTiming();
+
+    // Ensure current question's answer is persisted with latest value
+    // This handles the case where user types but doesn't blur before clicking Finish
+    const currentAnswer = userAnswers[currentQuestionIndex];
+    if (currentAnswer !== undefined && currentAnswer !== null) {
+      // Persisting current question answer
+      await ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: currentAnswer });
+    }
 
     await persistAllAnswers();
     await persistCheatingCount(tabViolations);
@@ -526,9 +580,28 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         );
 
       // Create detailed answers snapshot for dashboard display
+      // Use userAnswers as the primary source since it contains the latest state
       const answersSnapshot = questions
         .map((question, index) => {
-          const rawValue = userAnswers[index];
+          // Get from userAnswers (in-memory state) first
+          let rawValue = userAnswers[index];
+          
+          // If not in userAnswers, try to get from answerRecords (persisted data)
+          if ((rawValue === undefined || rawValue === null) && answerRecords[question.id]) {
+            const record = answerRecords[question.id];
+            // For multiple choice, the value is the option ID, we need to find the index
+            if (question.format === 'multiple_choice') {
+              const optionIndex = question.options?.findIndex(opt => opt.id === record.value);
+              if (optionIndex !== undefined && optionIndex >= 0) {
+                rawValue = optionIndex;
+              }
+            } else {
+              // For text questions, the value is the text itself
+              rawValue = record.value;
+            }
+          }
+          
+          // Creating snapshot for question
           
           // Base info for all questions (answered or not)
           const baseInfo = {
@@ -580,7 +653,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
               ...baseInfo,
               allOptions: allOptions.map(opt => opt.text),
               userAnswer: selectedOption.text ?? selectedOption.optionText ?? '',
-              selectedOptionIndex: optionIndex,
+              selectedOptionIndex: optionIndex, // This is the key fix - ensure the index is saved
               correctAnswer,
               isCorrect: selectedOption.isCorrect ?? false,
             };
@@ -594,37 +667,21 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
             textValue = String(rawValue).trim();
           }
           
-          console.log('[AssessmentScreen] Processing open-ended question:', {
-            questionIndex: index,
-            questionId: question.id,
-            rawValue,
-            rawValueType: typeof rawValue,
-            textValue,
-            textValueLength: textValue.length,
-            hasValue: !!textValue,
-          });
+          // Processing open-ended question
           
+          // For text questions, always return the text value even if empty
+          // This ensures the answer is properly saved in the snapshot
           return {
             ...baseInfo,
-            userAnswer: textValue || null,
+            userAnswer: textValue, // Use textValue directly, not null if empty
             allOptions: [],
             correctAnswer: null,
             isCorrect: null, // Cannot auto-grade open-ended questions
           };
         });
 
-      console.log('[AssessmentScreen] Before creating snapshot:', {
-        totalQuestions: questions.length,
-        userAnswersCount: Object.keys(userAnswers).length,
-        userAnswersKeys: Object.keys(userAnswers),
-        userAnswers: userAnswers,
-      });
 
-      console.log('[AssessmentScreen] answersSnapshot created:', {
-        totalQuestions: questions.length,
-        snapshotCount: answersSnapshot.length,
-        snapshot: answersSnapshot,
-      });
+      // answersSnapshot created
 
       const rawName =
         (typeof user.user_metadata?.full_name === 'string'
@@ -665,21 +722,55 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         })),
       } satisfies FinaliseAssessmentOptions;
 
-      console.log('[AssessmentScreen] finalisePayloadRef.current:', {
-        answersSnapshotCount: finalisePayloadRef.current.answersSnapshot?.length ?? 0,
-        answersSnapshot: finalisePayloadRef.current.answersSnapshot,
-      });
+      // finalisePayloadRef.current set
 
       await runAiAnalysis();
     } catch (error) {
-      console.error('Failed to finalise assessment attempt:', error);
-      if (isMountedRef.current) {
-        setSubmissionError(getAiErrorMessage(error));
-      }
+      // Failed to finalise assessment attempt
+      
+      // Check if this is a GeminiApiError with retry information
+      const isGeminiError = error instanceof GeminiApiError;
+      const retryCount = isGeminiError && error.payload && typeof error.payload === 'object'
+        ? (error.payload as { retryCount?: number }).retryCount
+        : 0;
+      
+      // Update attempt status to indicate AI failure
       updateActiveAttempt({
         aiStatus: 'failed',
         lastAiError: error instanceof Error ? error.message : null,
       });
+      
+      // If we've exhausted retries (3 attempts), redirect to results screen
+      // with a partial result (no AI analysis)
+      if (retryCount >= 3) {
+        // Retry limit reached, redirecting to results screen
+        
+        // Create a partial result without AI analysis
+        const partialResult: AssessmentResult = {
+          summary: null,
+          strengths: [],
+          developmentAreas: [],
+          skillScores: [],
+          recommendedRoles: [],
+          developmentSuggestions: [],
+          completedAt: new Date().toISOString(),
+          hrApprovalStatus: 'pending',
+          teamFit: null,
+          aiAnalysisAvailable: false,
+        };
+        
+        setAssessmentResult(partialResult);
+        
+        if (isMountedRef.current) {
+          setIsFinalising(false);
+          onFinish(); // Navigate to results screen
+        }
+      } else {
+        // Show error dialog for retry
+        if (isMountedRef.current) {
+          setSubmissionError(getAiErrorMessage(error));
+        }
+      }
     } finally {
       if (isMountedRef.current) {
         setIsFinalising(false);
@@ -709,42 +800,37 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     questionTimings,
     totalStartTime,
     updateQuestionTiming,
+    setAssessmentResult,
   ]);
 
 
   // Restore state from sessionStorage on mount
   useEffect(() => {
     const savedState = sessionStorage.getItem('assessmentState');
-    console.log('[AssessmentScreen] Checking for saved state on mount:', !!savedState, 'hasStoredState:', hasStoredState);
+    // Checking for saved state on mount
     if (savedState && !hasStoredState) {
       // Wait for activeAttempt to be resolved before restoring state
       if (!activeAttempt) {
-        console.log('[AssessmentScreen] Waiting for activeAttempt before restoring state...');
+        // Waiting for activeAttempt before restoring state...
         return;
       }
 
       try {
         const parsedState = JSON.parse(savedState);
-        console.log('[AssessmentScreen] Restoring state:', parsedState);
+        // Restoring state
 
         if (parsedState.roleName && parsedState.roleName !== role.name) {
-          console.log('[AssessmentScreen] Saved state belongs to different role, ignoring.');
           sessionStorage.removeItem('assessmentState');
           return;
         }
 
         if (activeAttempt && parsedState.attemptId && parsedState.attemptId !== activeAttempt.id) {
-          console.log('[AssessmentScreen] Saved state belongs to different attempt, ignoring.');
+          // Saved state belongs to different attempt, ignoring.
           sessionStorage.removeItem('assessmentState');
           return;
         }
 
         // currentQuestionIndex is now handled by URL
-        setUserAnswers(parsedState.userAnswers || {});
-        setTimeLeft(parsedState.timeLeft || 0);
-        setQuestionTimings(parsedState.questionTimings || {});
-        setTabViolations(parsedState.tabViolations || 0);
-        setHasStoredState(true);
 
         // Calculate the time spent while away and adjust currentQuestionStartTime
         if (parsedState.currentQuestionStartTime) {
@@ -752,7 +838,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           setCurrentQuestionStartTime(Date.now() - timeAway);
         }
       } catch (error) {
-        console.error('Failed to restore assessment state:', error);
+        // Failed to restore assessment state
       }
     }
   }, [hasStoredState, activeAttempt, role.name]);
@@ -760,8 +846,9 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   // Tab change detection and state persistence
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        console.log('[AssessmentScreen] Tab hidden detected. Violations:', stateRef.current.tabViolations + 1);
+      // Don't track tab violations when finalising (AI is processing)
+      if (document.hidden && !isFinalising) {
+        // Tab hidden detected
 
         // User switched tabs or minimized window
         setTabViolations((prev) => prev + 1);
@@ -790,6 +877,8 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           tabViolations: currentState.tabViolations + 1,
         };
         sessionStorage.setItem('assessmentState', JSON.stringify(stateToSave));
+      } else if (document.hidden && isFinalising) {
+        // Tab hidden during AI processing - not counting as violation
       }
     };
 
@@ -826,7 +915,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   // Enforce tab violation limit
   useEffect(() => {
     if (tabViolations > 3 && !isFinalising && assessment) {
-      console.log('[AssessmentScreen] Tab violations exceeded limit, finishing assessment');
+      // Tab violations exceeded limit, finishing assessment
       void finishAssessment();
     }
   }, [tabViolations, isFinalising, finishAssessment, assessment]);
@@ -834,7 +923,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   // Timer logic
   useEffect(() => {
     if (timeLeft <= 0 && timeLeft !== 0) {
-      console.log('[AssessmentScreen] Timer expired, finishing assessment');
+      // Timer expired, finishing assessment
       void finishAssessment();
       return;
     }
@@ -848,11 +937,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   }, [timeLeft, finishAssessment]);
 
   const handleOptionSelect = (optionIndex: number) => {
-    console.log('[AssessmentScreen] handleOptionSelect:', {
-      questionIndex: currentQuestionIndex,
-      optionIndex,
-      currentAnswersCount: Object.keys(userAnswers).length,
-    });
+    // handleOptionSelect called
     setUserAnswers(prev => ({
       ...prev,
       [currentQuestionIndex]: optionIndex
@@ -863,13 +948,21 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const navigateQuestion = useCallback(
     async (direction: number) => {
       updateQuestionTiming();
-      await ensureAnswerPersisted(currentQuestionIndex);
+      
+      // Persist current question's answer before navigating
+      const currentAnswer = userAnswers[currentQuestionIndex];
+      // Persisting current answer
+      
+      await ensureAnswerPersisted(currentQuestionIndex, {
+        overrideRawValue: currentAnswer,
+      });
+      
       const newIndex = currentQuestionIndex + direction;
       if (newIndex >= 0 && newIndex < questions.length) {
         navigate(`/assessment/${role.name}/q/${newIndex + 1}`);
       }
     },
-    [currentQuestionIndex, questions.length, ensureAnswerPersisted, updateQuestionTiming, navigate, role.name],
+    [currentQuestionIndex, questions.length, ensureAnswerPersisted, updateQuestionTiming, navigate, role.name, userAnswers],
   );
 
   // Fetch assessment data from API
@@ -913,7 +1006,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         }
       } catch (err) {
         setError(t('assessmentScreen.errorFetching'));
-        console.error('Error fetching assessment data:', err);
+        // Error fetching assessment data
       } finally {
         setLoading(false);
       }
@@ -935,7 +1028,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         const timeAway = Date.now() - parsedState.currentQuestionStartTime;
         setCurrentQuestionStartTime(Date.now() - timeAway);
       } catch (error) {
-        console.error('Failed to restore assessment state:', error);
+        // Failed to restore assessment state
       }
     }
 
@@ -967,14 +1060,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       );
     }
 
-    console.log('[AssessmentScreen] Rendering question:', {
-      index: currentQuestionIndex,
-      id: question.id,
-      format: question.format,
-      isMultipleChoice: question.format === 'multiple_choice',
-      hasOptions: !!question.options,
-      optionsCount: question.options?.length ?? 0,
-    });
+    // Rendering question
 
     return (
       <div className="space-y-8">
@@ -1034,20 +1120,13 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
               onChange={(event) => {
                 if (!isFinalising) {
                   const newValue = event.target.value;
-                  console.log('[AssessmentScreen] Textarea onChange:', {
-                    questionIndex: currentQuestionIndex,
-                    valueLength: newValue.length,
-                    value: newValue.substring(0, 50), // Log first 50 chars
-                  });
+                  // Textarea onChange
                   setUserAnswers(prev => {
                     const updated = {
                       ...prev,
                       [currentQuestionIndex]: newValue
                     };
-                    console.log('[AssessmentScreen] Updated userAnswers:', {
-                      keys: Object.keys(updated),
-                      count: Object.keys(updated).length,
-                    });
+                    // Updated userAnswers
                     return updated;
                   });
                   

@@ -37,9 +37,12 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
   const { t, lang } = useLanguage();
 
   const completedLabel = formatCompletedAt(result.completedAt, lang);
+  const aiAnalysisAvailable = result.aiAnalysisAvailable !== false; // Default to true for backward compatibility
   const summaryText = result.summary && result.summary.trim().length > 0
     ? result.summary
-    : t('resultScreen.summaryFallback');
+    : aiAnalysisAvailable
+      ? t('resultScreen.summaryFallback')
+      : t('resultScreen.aiUnavailableSummary') || 'Your assessment has been submitted successfully. Our HR team will review your responses and provide feedback soon.';
   const strengths = result.strengths;
   const developmentAreas = result.developmentAreas;
   const skillScores = result.skillScores;
@@ -75,6 +78,25 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
         transition={{ duration: 0.45, ease: 'easeOut' }}
         className="mx-auto flex w-full max-w-5xl flex-col gap-8"
       >
+        {!aiAnalysisAvailable && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-lg">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-amber-900">
+                  {t('resultScreen.aiUnavailableTitle') || 'AI Analysis Unavailable'}
+                </h3>
+                <p className="mt-2 text-sm text-amber-800">
+                  {t('resultScreen.aiUnavailableMessage') || 'Our AI analysis service was temporarily unavailable. Your assessment has been submitted successfully and our HR team will review your responses manually. You will be notified once the review is complete.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="rounded-3xl border border-emerald-100 bg-white/90 p-8 shadow-xl shadow-emerald-100/50 backdrop-blur-sm md:p-12">
           <div className="flex flex-col gap-6">
             <div className="flex items-center justify-between">
@@ -118,7 +140,11 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
                 </span>
               ))
             ) : (
-              <p className="text-sm text-slate-500">{t('resultScreen.strengthsEmpty')}</p>
+              <p className="text-sm text-slate-500">
+                {!aiAnalysisAvailable 
+                  ? (t('resultScreen.pendingHrReview') || 'Pending HR review')
+                  : t('resultScreen.strengthsEmpty')}
+              </p>
             )}
           </div>
         </section>
@@ -179,7 +205,11 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
               })}
             </div>
           ) : (
-            <p className="mt-4 text-sm text-slate-500">{t('resultScreen.skillScoresEmpty')}</p>
+            <p className="mt-4 text-sm text-slate-500">
+              {!aiAnalysisAvailable 
+                ? (t('resultScreen.pendingHrReview') || 'Pending HR review')
+                : t('resultScreen.skillScoresEmpty')}
+            </p>
           )}
         </section>
 

@@ -121,7 +121,14 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
 };
 
 export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => {
-  const base = {
+  const base: {
+    attempt_id: string | null;
+    result_id: string | null;
+    question_id: string;
+    user_answer_text: string | null;
+    selected_option_id: string | null;
+    time_spent_seconds?: number | null;
+  } = {
     attempt_id: payload.attemptId ?? null,
     result_id: payload.resultId ?? null,
     question_id: payload.questionId,
@@ -564,17 +571,70 @@ export const finaliseAssessmentAttempt = async (
       team_fit: teamFitId, // Store team UUID (not array)
     } satisfies Record<string, unknown>;
 
-    const { error: resultError } = await supabase.from('interview_results').insert(resultPayload);
+    // Check if result already exists for this user+assessment combination
+    const { data: existingResult, error: checkError } = await supabase
+      .from('interview_results')
+      .select('id')
+      .eq('user_id', userData.id)
+      .eq('assessment_id', payload.assessmentId)
+      .maybeSingle();
 
-    if (resultError) {
-      console.error('Failed to persist assessment result:', resultError);
-      throw new Error('Khong the luu ket qua danh gia.');
+    if (checkError) {
+      console.error('Failed to check existing result:', checkError);
+      throw new Error('Khong the kiem tra ket qua danh gia ton tai.');
+    }
+
+    let result;
+    if (existingResult) {
+      // Update existing result
+      const { data, error: updateError } = await supabase
+        .from('interview_results')
+        .update(resultPayload)
+        .eq('id', existingResult.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Failed to update assessment result:', updateError);
+        throw new Error('Khong the cap nhat ket qua danh gia.');
+      }
+      result = data;
+    } else {
+      // Insert new result
+      const { data, error: insertError } = await supabase
+        .from('interview_results')
+        .insert(resultPayload)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Failed to persist assessment result:', insertError);
+        throw new Error('Khong the luu ket qua danh gia.');
+      }
+      result = data;
     }
 
     console.log('[finaliseAssessmentAttempt] Saving answers_snapshot:', {
       count: payload.answersSnapshot?.length ?? 0,
       snapshot: payload.answersSnapshot,
     });
+
+    // Validate snapshot can be serialized to JSON
+    let validatedSnapshot = payload.answersSnapshot ?? null;
+    if (validatedSnapshot) {
+      try {
+        // Test serialization
+        const serialized = JSON.stringify(validatedSnapshot);
+        // Test deserialization
+        JSON.parse(serialized);
+        console.log('[finaliseAssessmentAttempt] Snapshot validation passed, size:', serialized.length);
+      } catch (serializationError) {
+        console.error('[finaliseAssessmentAttempt] Snapshot serialization failed:', serializationError);
+        console.error('[finaliseAssessmentAttempt] Problematic snapshot:', validatedSnapshot);
+        // Set to null to prevent database error, but log the issue
+        validatedSnapshot = null;
+      }
+    }
 
     const { data: attemptData, error: attemptError } = await supabase
       .from('interview_assessment_attempts')
@@ -589,7 +649,7 @@ export const finaliseAssessmentAttempt = async (
         average_seconds_per_question: payload.averageSecondsPerQuestion ?? null,
         cheating_count: payload.cheatingCount ?? 0,
         cheating_events: payload.cheatingEvents ?? null,
-        answers_snapshot: payload.answersSnapshot ?? null,
+        answers_snapshot: validatedSnapshot,
       })
       .eq('id', payload.attemptId)
       .select()
@@ -597,8 +657,21 @@ export const finaliseAssessmentAttempt = async (
 
     if (attemptError) {
       console.error('Failed to update attempt after AI analysis:', attemptError);
+      console.error('Attempt error details:', {
+        message: attemptError.message,
+        details: attemptError.details,
+        hint: attemptError.hint,
+        code: attemptError.code,
+      });
       throw new Error('Khong the cap nhat trang thai bai danh gia.');
     }
+
+    console.log('[finaliseAssessmentAttempt] Attempt updated successfully:', {
+      attemptId: attemptData.id,
+      hasAnswersSnapshot: !!attemptData.answers_snapshot,
+      snapshotType: typeof attemptData.answers_snapshot,
+      snapshotLength: Array.isArray(attemptData.answers_snapshot) ? attemptData.answers_snapshot.length : 0,
+    });
 
     return {
       attempt: mapAssessmentAttempt(attemptData as AssessmentAttemptRow),

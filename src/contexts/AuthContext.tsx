@@ -11,6 +11,8 @@ interface AuthContextValue {
   session: Session | null;
   user: User | null;
   signInWithProvider: (provider: OAuthProvider) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ error?: string }>;
+  signInWithPassword: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -98,6 +100,86 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
     }
   };
 
+  const signUp = async (email: string, password: string, fullName?: string) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/role-selection`,
+          data: {
+            full_name: fullName || '',
+          },
+        },
+      });
+
+      if (error) {
+        console.error('Supabase sign-up error:', error);
+        
+        // Handle specific error cases
+        if (error.message.includes('already registered') || error.message.includes('already exists')) {
+          return { error: 'duplicate_email' };
+        }
+        
+        if (error.message.includes('Signups not allowed')) {
+          return { error: 'signups_disabled' };
+        }
+        
+        return { error: toFriendlyMessage() };
+      }
+
+      // Check if email confirmation is required
+      if (data.user && !data.session) {
+        console.log('[AuthContext] Email confirmation required for:', email);
+        return { error: 'email_confirmation_required' };
+      }
+
+      console.log('[AuthContext] Sign-up successful:', {
+        userId: data.user?.id,
+        email: data.user?.email,
+      });
+
+      return {};
+    } catch (error) {
+      console.error('Unexpected sign-up error:', error);
+      return { error: toFriendlyMessage() };
+    }
+  };
+
+  const signInWithPassword = async (email: string, password: string) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        console.error('Supabase sign-in error:', error);
+        
+        // Handle specific error cases
+        if (error.message.includes('Invalid login credentials')) {
+          return { error: 'invalid_credentials' };
+        }
+        
+        if (error.message.includes('Email not confirmed')) {
+          return { error: 'email_not_confirmed' };
+        }
+        
+        return { error: toFriendlyMessage() };
+      }
+
+      console.log('[AuthContext] Sign-in successful:', {
+        userId: data.user?.id,
+        email: data.user?.email,
+      });
+
+      return {};
+    } catch (error) {
+      console.error('Unexpected sign-in error:', error);
+      return { error: toFriendlyMessage() };
+    }
+  };
+
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
@@ -111,6 +193,8 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
       session,
       user,
       signInWithProvider,
+      signUp,
+      signInWithPassword,
       signOut,
     }),
     [session, status, user],
