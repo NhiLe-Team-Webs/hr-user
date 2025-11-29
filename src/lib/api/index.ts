@@ -9,7 +9,7 @@ export {
   getAssessment,
   getQuestionsByIds,
   upsertAnswer,
-  ensureProfile,
+  ensureUser,
   startAssessmentAttempt,
   submitAssessmentAttempt,
   finaliseAssessmentAttempt,

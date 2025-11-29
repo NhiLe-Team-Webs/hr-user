@@ -2,28 +2,34 @@ import { supabase } from '@/lib/supabaseClient';
 import type { ProfileUpdates, CandidateInfo } from './types';
 
 interface SupabaseCandidateDetails {
-  id: string;
-  name: string | null;
+  id: string; // Internal ID
+  auth_id: string; // Auth ID
+  full_name: string | null;
   email: string | null;
   role: string | null;
   band: string | null;
-  scores?: { overall_score: number | null }[];
+  results?: { id: string }[];
 }
 
-interface SupabaseCandidateProfile {
-  id: string;
-  name: string | null;
+interface SupabaseCandidateUser {
+  id: string; // Internal ID
+  auth_id: string; // Auth ID
+  full_name: string | null;
   email: string | null;
   role: string | null;
   band: string | null;
-  results?: { overall_score: number | null }[];
+  results?: {
+    id: string;
+    team_fit?: string | null;
+  }[];
 }
 
 export const updateCandidateInfo = async (candidateId: string, updates: ProfileUpdates): Promise<void> => {
+  // candidateId is Auth ID
   const { error } = await supabase
-    .from('profiles')
+    .from('users')
     .update(updates)
-    .eq('id', candidateId);
+    .eq('auth_id', candidateId);
 
   if (error) {
     console.error('Failed to update candidate info:', error);
@@ -32,19 +38,21 @@ export const updateCandidateInfo = async (candidateId: string, updates: ProfileU
 };
 
 export const getCandidateDetails = async (candidateId: string): Promise<SupabaseCandidateDetails | null> => {
+  // candidateId is Auth ID
   const { data, error } = await supabase
-    .from('profiles')
+    .from('users')
     .select(
       `
         id,
-        name,
+        auth_id,
+        full_name,
         email,
         role,
         band,
-        scores:results(overall_score)
+        results:interview_results!user_id(id, team_fit)
       `,
     )
-    .eq('id', candidateId)
+    .eq('auth_id', candidateId)
     .single();
 
   if (error) {
@@ -57,38 +65,38 @@ export const getCandidateDetails = async (candidateId: string): Promise<Supabase
 
 export const getCandidates = async (): Promise<CandidateInfo[]> => {
   const { data, error } = await supabase
-    .from('profiles')
+    .from('users')
     .select(
       `
         id,
-        name,
+        auth_id,
+        full_name,
         email,
         role,
         band,
-        results(overall_score)
+        results:interview_results!user_id(id, team_fit)
       `,
-    );
+    )
+    .eq('role', 'candidate');
 
   if (error) {
     console.error('Failed to load candidates:', error);
     throw new Error('Khong the tai danh sach ung vien.');
   }
 
-  const rows = (data as SupabaseCandidateProfile[] | null) ?? [];
+  const rows = (data as SupabaseCandidateUser[] | null) ?? [];
 
-  return rows.map((profile) => {
-    const totalScore =
-      profile.results?.[0]?.overall_score ?? profile.results?.[0]?.overall_score ?? null;
-    const status: CandidateInfo['status'] = totalScore != null ? 'completed' : 'in_progress';
+  return rows.map((user) => {
+    const hasResult = (user.results?.length ?? 0) > 0;
+    const status: CandidateInfo['status'] = hasResult ? 'completed' : 'in_progress';
 
     return {
-      id: profile.id,
-      fullName: profile.name ?? null,
-      email: profile.email ?? null,
-      role: profile.role ?? null,
-      band: profile.band ?? null,
-      avatarChar: profile.name?.charAt(0).toUpperCase() ?? '?',
-      scores: { overall: totalScore },
+      id: user.auth_id, // Use Auth ID as public ID
+      fullName: user.full_name ?? null,
+      email: user.email ?? null,
+      role: user.role ?? null,
+      band: user.band ?? null,
+      avatarChar: user.full_name?.charAt(0).toUpperCase() ?? '?',
       status,
       startTime: new Date(),
       phone: 'N/A',

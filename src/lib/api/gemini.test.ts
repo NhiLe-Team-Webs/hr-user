@@ -19,10 +19,11 @@ const minimalSuccessResponse = {
         parts: [
           {
             text: JSON.stringify({
-              overall_score: 72,
               skill_scores: [],
               strengths: [],
               development_areas: [],
+              recommended_roles: [],
+              team_fit: [],
               summary: 'OK',
             }),
           },

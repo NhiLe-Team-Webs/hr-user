@@ -1,5 +1,6 @@
 // src/components/AssessmentScreen.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, CheckCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
@@ -31,20 +32,28 @@ import {
 
 interface AssessmentScreenProps {
   role: Role;
+  questionIndexParam?: number;
   onFinish: () => void;
 }
 
-const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) => {
+const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndexParam, onFinish }) => {
+  const navigate = useNavigate();
   const { activeAttempt, updateActiveAttempt, setAssessmentResult } = useAssessment();
   const { user } = useAuth();
   const { lang, t } = useLanguage();
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+
+  // Derive index from URL param (1-based) or default to 0
+  const currentQuestionIndex = (questionIndexParam ? questionIndexParam : 1) - 1;
+
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
-  const [answerRecords, setAnswerRecords] = useState<
-    Record<string, { id: string; value: string; timeSpentSeconds: number | null }>
-  >({});
+  const [answerRecords, setAnswerRecords] = useState<Record<string, { id: string; value: string }>>({});
+
+  useEffect(() => {
+    console.log('[AssessmentScreen] Mounted. activeAttempt:', activeAttempt?.id, 'role:', role.name);
+  }, [activeAttempt, role]);
+
   const currentQuestion = questions[currentQuestionIndex];
   const currentAnswer = userAnswers[currentQuestionIndex];
   const hasAnsweredCurrent = currentQuestion?.format === 'multiple_choice'
@@ -60,10 +69,16 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const finalisePayloadRef = useRef<FinaliseAssessmentOptions | null>(null);
   const isMountedRef = useRef(true);
-  const questionStartTimeRef = useRef<number | null>(null);
-  const activeQuestionIdRef = useRef<string | null>(null);
-  const questionTimeSpentRef = useRef<Record<string, number>>({});
-  const isAttemptSubmitted = Boolean(activeAttempt?.submittedAt);
+  const [hasStoredState, setHasStoredState] = useState(false);
+  
+  // Cheating detection state
+  interface CheatingEvent {
+    type: 'tab_switch' | 'copy_paste';
+    questionId: string;
+    occurredAt: string;
+    metadata?: Record<string, unknown>;
+  }
+  const [cheatingEvents, setCheatingEvents] = useState<CheatingEvent[]>([]);
 
   const ensureAnswerPersisted = useCallback(
     async (
@@ -290,7 +305,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     }
 
     try {
-      const latest = await getLatestResult(payload.profileId, payload.assessmentId);
+      const latest = await getLatestResult(payload.userId, payload.assessmentId);
 
       if (!isMountedRef.current) {
         return;
@@ -298,7 +313,6 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 
       if (latest) {
         setAssessmentResult({
-          score: latest.score,
           summary: latest.summary,
           strengths: latest.strengths,
           developmentAreas: latest.developmentAreas,
@@ -307,6 +321,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           developmentSuggestions: latest.developmentSuggestions,
           completedAt: latest.completedAt ?? latest.createdAt,
           hrApprovalStatus: latest.hrApprovalStatus,
+          teamFit: latest.teamFit,
         });
       } else {
         setAssessmentResult(result.result);
@@ -376,16 +391,73 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   }, [getAiErrorMessage, runAiAnalysis, updateActiveAttempt]);
 
 
+  const [questionTimings, setQuestionTimings] = useState<Record<string, number>>({});
+  const [currentQuestionStartTime, setCurrentQuestionStartTime] = useState<number>(Date.now());
+  const [totalStartTime] = useState<number>(Date.now());
+
+  // Ref to hold the latest state for event handlers
+  const stateRef = useRef({
+    currentQuestionIndex,
+    userAnswers,
+    timeLeft,
+    questionTimings,
+    totalStartTime,
+    currentQuestionStartTime,
+    tabViolations,
+  });
+
+  // Update stateRef whenever state changes
+  useEffect(() => {
+    stateRef.current = {
+      currentQuestionIndex,
+      userAnswers,
+      timeLeft,
+      questionTimings,
+      totalStartTime,
+      currentQuestionStartTime,
+      tabViolations,
+    };
+  }, [
+    currentQuestionIndex,
+    userAnswers,
+    timeLeft,
+    questionTimings,
+    totalStartTime,
+    currentQuestionStartTime,
+    tabViolations,
+  ]);
+
+  // Track time for current question when switching questions or finishing
+  const updateQuestionTiming = useCallback(() => {
+    const now = Date.now();
+    const timeSpent = (now - currentQuestionStartTime) / 1000; // seconds
+    const questionId = questions[currentQuestionIndex]?.id;
+
+    if (questionId) {
+      setQuestionTimings((prev) => ({
+        ...prev,
+        [questionId]: (prev[questionId] || 0) + timeSpent,
+      }));
+    }
+    setCurrentQuestionStartTime(now);
+  }, [currentQuestionIndex, currentQuestionStartTime, questions]);
+
+  // Update timing when question changes
+  useEffect(() => {
+    setCurrentQuestionStartTime(Date.now());
+  }, [currentQuestionIndex]);
+
   const finishAssessment = useCallback(async () => {
+    console.log('[AssessmentScreen] finishAssessment called. activeAttempt:', !!activeAttempt, 'assessment:', !!assessment);
     if (!activeAttempt || !assessment || !assessment.id || !user) {
-      onFinish();
+      console.warn('[AssessmentScreen] Missing required data for finishAssessment, redirecting to RoleSelection');
+      navigate('/role-selection');
       return;
     }
 
-    const latestTime = accumulateTimeForQuestion(currentQuestionIndex);
-    await ensureAnswerPersisted(currentQuestionIndex, {
-      timeSpentSeconds: typeof latestTime === 'number' ? latestTime : undefined,
-    });
+    // Update timing for the last question
+    updateQuestionTiming();
+
     await persistAllAnswers();
     await persistCheatingCount(tabViolations);
 
@@ -447,19 +519,86 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
           (item): item is FinaliseAssessmentOptions['answers'][number] => item !== null,
         );
 
+      // Create detailed answers snapshot for dashboard display
+      const answersSnapshot = questions
+        .map((question, index) => {
+          const rawValue = userAnswers[index];
+          if (typeof rawValue === 'undefined' || rawValue === null) {
+            return null;
+          }
+
+          const allOptions = question.options?.map((option) => option.text ?? option.optionText ?? '') ?? [];
+
+          if (question.format === 'multiple_choice') {
+            const optionIndex = Number(rawValue);
+            const option = question.options?.[optionIndex];
+            if (!option) {
+              return null;
+            }
+            return {
+              questionId: question.id,
+              questionText: question.text,
+              questionFormat: question.format,
+              userAnswer: option.text ?? option.optionText ?? '',
+              selectedOptionIndex: optionIndex,
+              allOptions,
+              answeredAt: new Date().toISOString(),
+            };
+          }
+
+          const textValue = String(rawValue).trim();
+          if (!textValue) {
+            return null;
+          }
+
+          return {
+            questionId: question.id,
+            questionText: question.text,
+            questionFormat: question.format,
+            userAnswer: textValue,
+            allOptions: [],
+            answeredAt: new Date().toISOString(),
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+
       const rawName =
         (typeof user.user_metadata?.full_name === 'string'
           ? user.user_metadata.full_name
           : undefined) ?? user.email ?? null;
 
+      // Calculate final timings
+      const now = Date.now();
+      // Add the last bit of time for the current question to the record before sending
+      const finalQuestionId = questions[currentQuestionIndex]?.id;
+      const finalTimeSpent = (now - currentQuestionStartTime) / 1000;
+      const finalQuestionTimings = {
+        ...questionTimings,
+        ...(finalQuestionId ? { [finalQuestionId]: (questionTimings[finalQuestionId] || 0) + finalTimeSpent } : {}),
+      };
+
+      const durationSeconds = Math.floor((now - totalStartTime) / 1000);
+      const averageSecondsPerQuestion = questions.length > 0 ? durationSeconds / questions.length : 0;
+
       finalisePayloadRef.current = {
         attemptId: updatedAttempt.id,
         assessmentId: assessment.id,
-        profileId: user.id,
+        userId: user.id,
         role: role.name,
         candidateName: rawName ? rawName.trim() : null,
         language: lang,
         answers: answersForGemini,
+        answersSnapshot,
+        questionTimings: finalQuestionTimings,
+        durationSeconds,
+        averageSecondsPerQuestion,
+        cheatingCount: cheatingEvents.length,
+        cheatingEvents: cheatingEvents.map(event => ({
+          type: event.type,
+          questionId: event.questionId,
+          occurredAt: event.occurredAt,
+          metadata: event.metadata,
+        })),
       } satisfies FinaliseAssessmentOptions;
 
       await runAiAnalysis();
@@ -496,137 +635,186 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
     updateActiveAttempt,
     user,
     userAnswers,
+    currentQuestionIndex,
+    currentQuestionStartTime,
+    questionTimings,
+    totalStartTime,
+    updateQuestionTiming,
   ]);
 
 
-  // Timer logic
+  // Restore state from sessionStorage on mount
   useEffect(() => {
-    if (!hasTimerStarted) {
-      return;
-    }
-
-    if (timeLeft <= 0) {
-      if (!isFinalising && !isAttemptSubmitted) {
-        void finishAssessment();
-      }
-
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [finishAssessment, hasTimerStarted, isAttemptSubmitted, isFinalising, timeLeft]);
-
-  useEffect(() => {
-    if (timeLeft > 0) {
-      setHasTimerStarted(true);
-    }
-  }, [timeLeft]);
-
-
-  useEffect(() => {
-    if (!activeAttempt || isAttemptSubmitted) {
-      return;
-    }
-
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = 'Changes you made may not be saved.';
-      return 'Changes you made may not be saved.';
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [activeAttempt, isAttemptSubmitted]);
-
-  useEffect(() => {
-    if (isFinalising || isAttemptSubmitted) {
-      return;
-    }
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden || isFinalising || isAttemptSubmitted) {
+    const savedState = sessionStorage.getItem('assessmentState');
+    console.log('[AssessmentScreen] Checking for saved state on mount:', !!savedState, 'hasStoredState:', hasStoredState);
+    if (savedState && !hasStoredState) {
+      // Wait for activeAttempt to be resolved before restoring state
+      if (!activeAttempt) {
+        console.log('[AssessmentScreen] Waiting for activeAttempt before restoring state...');
         return;
       }
 
-      setTabViolations((prev) => {
-        const next = prev + 1;
-        void persistCheatingCount(next);
-        return next;
-      });
-      setIsAlertOpen(true);
+      try {
+        const parsedState = JSON.parse(savedState);
+        console.log('[AssessmentScreen] Restoring state:', parsedState);
+
+        if (parsedState.roleName && parsedState.roleName !== role.name) {
+          console.log('[AssessmentScreen] Saved state belongs to different role, ignoring.');
+          sessionStorage.removeItem('assessmentState');
+          return;
+        }
+
+        if (activeAttempt && parsedState.attemptId && parsedState.attemptId !== activeAttempt.id) {
+          console.log('[AssessmentScreen] Saved state belongs to different attempt, ignoring.');
+          sessionStorage.removeItem('assessmentState');
+          return;
+        }
+
+        // currentQuestionIndex is now handled by URL
+        setUserAnswers(parsedState.userAnswers || {});
+        setTimeLeft(parsedState.timeLeft || 0);
+        setQuestionTimings(parsedState.questionTimings || {});
+        setTabViolations(parsedState.tabViolations || 0);
+        setHasStoredState(true);
+
+        // Calculate the time spent while away and adjust currentQuestionStartTime
+        if (parsedState.currentQuestionStartTime) {
+          const timeAway = Date.now() - parsedState.currentQuestionStartTime;
+          setCurrentQuestionStartTime(Date.now() - timeAway);
+        }
+      } catch (error) {
+        console.error('Failed to restore assessment state:', error);
+      }
+    }
+  }, [hasStoredState, activeAttempt, role.name]);
+
+  // Tab change detection and state persistence
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[AssessmentScreen] Tab hidden detected. Violations:', stateRef.current.tabViolations + 1);
+
+        // User switched tabs or minimized window
+        setTabViolations((prev) => prev + 1);
+        setIsAlertOpen(true);
+
+        // Record cheating event
+        const currentQuestion = questions[stateRef.current.currentQuestionIndex];
+        if (currentQuestion) {
+          setCheatingEvents((prev) => [
+            ...prev,
+            {
+              type: 'tab_switch',
+              questionId: currentQuestion.id,
+              occurredAt: new Date().toISOString(),
+            },
+          ]);
+        }
+
+        // Save current state to sessionStorage using ref
+        const currentState = stateRef.current;
+        const stateToSave = {
+          ...currentState,
+          roleName: role.name, // Add role name to verify ownership
+          attemptId: activeAttempt?.id, // Add attempt ID to verify ownership
+          currentQuestionStartTime: Date.now(),
+          tabViolations: currentState.tabViolations + 1,
+        };
+        sessionStorage.setItem('assessmentState', JSON.stringify(stateToSave));
+      }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Save state before page unload using ref
+      const currentState = stateRef.current;
+      sessionStorage.setItem('assessmentState', JSON.stringify(currentState));
 
+      // Show warning if user tries to close/refresh during assessment
+      if (!isFinalising) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Clean up event listeners
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [isFinalising, isAttemptSubmitted, persistCheatingCount]);
+  }, [isFinalising]);
 
+  // Clean up sessionStorage when assessment is completed
   useEffect(() => {
-    if (tabViolations >= 3 && !isAttemptSubmitted) {
+    if (isFinalising) {
+      sessionStorage.removeItem('assessmentState');
+    }
+  }, [isFinalising]);
+
+  // Enforce tab violation limit
+  useEffect(() => {
+    if (tabViolations > 3 && !isFinalising && assessment) {
+      console.log('[AssessmentScreen] Tab violations exceeded limit, finishing assessment');
       void finishAssessment();
     }
-  }, [tabViolations, finishAssessment, isAttemptSubmitted]);
+  }, [tabViolations, isFinalising, finishAssessment, assessment]);
 
-  const saveAnswer = (questionIndex: number, answer: AnswerValue) => {
-    setUserAnswers((prev) => ({
-      ...prev,
-      [questionIndex]: answer,
-    }));
-  };
+  // Timer logic
+  useEffect(() => {
+    if (timeLeft <= 0 && timeLeft !== 0) {
+      console.log('[AssessmentScreen] Timer expired, finishing assessment');
+      void finishAssessment();
+      return;
+    }
+
+    if (timeLeft > 0) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [timeLeft, finishAssessment]);
 
   const handleOptionSelect = (optionIndex: number) => {
-    saveAnswer(currentQuestionIndex, optionIndex);
-    void ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: optionIndex });
+    setUserAnswers(prev => ({
+      ...prev,
+      [currentQuestionIndex]: optionIndex
+    }));
+    void ensureAnswerPersisted(currentQuestionIndex, optionIndex);
   };
 
   const navigateQuestion = useCallback(
     async (direction: number) => {
+      updateQuestionTiming();
+      await ensureAnswerPersisted(currentQuestionIndex);
       const newIndex = currentQuestionIndex + direction;
       if (newIndex >= 0 && newIndex < questions.length) {
-        const timeSpent = accumulateTimeForQuestion(currentQuestionIndex);
-        await ensureAnswerPersisted(currentQuestionIndex, {
-          timeSpentSeconds: typeof timeSpent === 'number' ? timeSpent : undefined,
-        });
-        setCurrentQuestionIndex(newIndex);
+        navigate(`/assessment/${role.name}/q/${newIndex + 1}`);
       }
     },
-    [
-      accumulateTimeForQuestion,
-      currentQuestionIndex,
-      ensureAnswerPersisted,
-      questions.length,
-    ],
+    [currentQuestionIndex, questions.length, ensureAnswerPersisted, updateQuestionTiming, navigate, role.name],
   );
 
   // Fetch assessment data from API
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const assessmentData = await getAssessment(role.name);
+        const assessmentData = await getAssessment(role.name, role.id);
         if (!assessmentData) {
           throw new Error('No assessment data returned');
         }
-        setAssessment(assessmentData);
-        const durationInSeconds =
-          typeof assessmentData.duration === 'number' && Number.isFinite(assessmentData.duration)
-            ? Math.max(0, Math.round(assessmentData.duration))
-            : 0;
-        setTimeLeft(durationInSeconds);
-        setHasTimerStarted(durationInSeconds > 0);
+        setAssessment(assessmentData as unknown as Assessment);
+
+        // Only set timeLeft if we don't have a saved state
+        if (!hasStoredState) {
+          setTimeLeft(assessmentData.duration * 60);
+        }
 
         if (assessmentData.questions?.length > 0) {
-          const formattedQuestions: Question[] = assessmentData.questions.map((q: Question) => {
+          const formattedQuestions: Question[] = assessmentData.questions.map((q) => {
             const options = q.options?.map((opt) => ({
               ...opt,
               text: opt.text ?? opt.optionText ?? '',
@@ -640,7 +828,8 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               points: q.points ?? 0,
               options,
               correctAnswer,
-            };
+              format: q.format === 'single' ? 'multiple_choice' : q.format,
+            } as Question;
           });
 
           setQuestions(formattedQuestions);
@@ -656,8 +845,28 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
       }
     };
 
+    // Check for saved state before fetching
+    const savedState = sessionStorage.getItem('assessmentState');
+    if (savedState) {
+      try {
+        const parsedState = JSON.parse(savedState);
+        setHasStoredState(true);
+        // currentQuestionIndex is now handled by URL
+        setUserAnswers(parsedState.userAnswers || {});
+        setTimeLeft(parsedState.timeLeft || 0);
+        setQuestionTimings(parsedState.questionTimings || {});
+        setTabViolations(parsedState.tabViolations || 0);
+
+        // Calculate the time spent while away and adjust currentQuestionStartTime
+        const timeAway = Date.now() - parsedState.currentQuestionStartTime;
+        setCurrentQuestionStartTime(Date.now() - timeAway);
+      } catch (error) {
+        console.error('Failed to restore assessment state:', error);
+      }
+    }
+
     void fetchData();
-  }, [role, t]);
+  }, [role, t, hasStoredState]);
 
 
 
@@ -673,6 +882,16 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   const renderQuestion = () => {
     if (!questions || questions.length === 0) return <p>{t('assessmentScreen.noAssessment')}</p>;
     const question = questions[currentQuestionIndex];
+    if (!question) {
+      return (
+        <div className="text-center p-8">
+          <p className="text-red-500 mb-4">{t('assessmentScreen.questionNotFound')}</p>
+          <Button onClick={() => navigate(`/assessment/${role.name}/q/1`)}>
+            {t('assessmentScreen.backToStart')}
+          </Button>
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-8">
@@ -687,7 +906,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
             {question.text}
           </h3>
         </motion.div>
-        
+
         <div className="space-y-4">
           {question.format === 'multiple_choice' ? (
             question.options && question.options.length > 0 ? (
@@ -705,7 +924,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                     ${userAnswers[currentQuestionIndex] === index
                         ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
                         : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
-                    } ${isFinalising ? 'pointer-events-none opacity-60' : ''}`}
+                      } ${isFinalising ? 'pointer-events-none opacity-60' : ''}`}
                     onClick={() => {
                       if (!isFinalising) {
                         handleOptionSelect(index);
@@ -731,7 +950,24 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               }
               onChange={(event) => {
                 if (!isFinalising) {
-                  saveAnswer(currentQuestionIndex, event.target.value);
+                  setUserAnswers(prev => ({
+                    ...prev,
+                    [currentQuestionIndex]: event.target.value
+                  }));
+                }
+              }}
+              onPaste={(event) => {
+                if (!isFinalising && currentQuestion) {
+                  const pastedText = event.clipboardData.getData('text');
+                  setCheatingEvents((prev) => [
+                    ...prev,
+                    {
+                      type: 'copy_paste',
+                      questionId: currentQuestion.id,
+                      occurredAt: new Date().toISOString(),
+                      metadata: { pastedLength: pastedText.length },
+                    },
+                  ]);
                 }
               }}
               onBlur={() => {
@@ -751,7 +987,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
   if (loading) {
     return <div className="text-center p-8">{t('assessmentScreen.loadingAssessment')}</div>;
   }
-  
+
   if (!assessment) {
     return <div className="text-center p-8 text-red-500">{t('assessmentScreen.noAssessmentForRole')}</div>;
   }
@@ -833,11 +1069,11 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <div className="mt-2 flex items-center justify-between text-sm text-gray-600">
                 <span>
                   {t('assessmentScreen.questionProgress', {
-                    current: currentQuestionIndex + 1,
-                    total: questions.length,
+                    current: String(currentQuestionIndex + 1),
+                    total: String(questions.length),
                   })}
                 </span>
-                <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
+                <span>{String(Math.round(((currentQuestionIndex + 1) / questions.length) * 100))}%</span>
               </div>
             </motion.div>
 
@@ -869,11 +1105,10 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <Button
                 onClick={() => void finishAssessment()}
                 disabled={!hasAnsweredCurrent || isFinalising}
-                className={`flex items-center gap-2 rounded-xl px-6 py-3 transition-colors ${
-                  hasAnsweredCurrent
-                    ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
-                    : 'bg-gray-300'
-                }`}
+                className={`flex items-center gap-2 rounded-xl px-6 py-3 transition-colors ${hasAnsweredCurrent
+                  ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
+                  : 'bg-gray-300'
+                  }`}
               >
                 <span>{t('assessmentScreen.finishBtn')}</span>
                 <CheckCircle className="h-5 w-5" />
@@ -882,11 +1117,10 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
               <Button
                 onClick={() => void navigateQuestion(1)}
                 disabled={!hasAnsweredCurrent || isFinalising}
-                className={`flex items-center gap-2 rounded-xl px-6 py-3 transition-colors ${
-                  hasAnsweredCurrent
-                    ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
-                    : 'bg-gray-300'
-                }`}
+                className={`flex items-center gap-2 rounded-xl px-6 py-3 transition-colors ${hasAnsweredCurrent
+                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700'
+                  : 'bg-gray-300'
+                  }`}
               >
                 <span>{t('assessmentScreen.nextBtn')}</span>
                 <ArrowRight className="h-5 w-5" />
@@ -905,7 +1139,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
                 <AlertDialogTitle>{t('assessmentScreen.tabWarningTitle')}</AlertDialogTitle>
               </div>
               <AlertDialogDescription>
-                {t('assessmentScreen.tabWarningDescription', { remaining: 3 - tabViolations })}
+                {t('assessmentScreen.tabWarningDescription', { remaining: String(Math.max(0, 3 - tabViolations)) })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -954,25 +1188,3 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, onFinish }) =
 };
 
 export default AssessmentScreen;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

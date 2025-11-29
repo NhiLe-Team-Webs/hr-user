@@ -9,10 +9,14 @@ import {
 } from 'react';
 import type { AssessmentAttempt, AssessmentResult, AssessmentSkillScore, Role, HrApprovalStatus } from '@/types/assessment';
 
+type ResolutionStatus = 'idle' | 'loading' | 'ready';
+
 interface AssessmentState {
   selectedRole: Role | null;
   assessmentResult: AssessmentResult | null;
   activeAttempt: AssessmentAttempt | null;
+  resolutionStatus: ResolutionStatus;
+  nextRoute: string | null;
 }
 
 interface AssessmentContextValue extends AssessmentState {
@@ -21,6 +25,8 @@ interface AssessmentContextValue extends AssessmentState {
   setAssessmentResult: (result: AssessmentResult | null) => void;
   setActiveAttempt: (attempt: AssessmentAttempt | null) => void;
   updateActiveAttempt: (update: Partial<AssessmentAttempt>) => void;
+  setResolutionStatus: (status: ResolutionStatus) => void;
+  setNextRoute: (route: string | null) => void;
   resetAssessment: () => void;
 }
 
@@ -103,14 +109,6 @@ const hydrateAssessmentResult = (value: unknown): AssessmentResult | null => {
   }
 
   const record = value as Record<string, unknown>;
-  const rawScore = record.score;
-  let score: number | null = null;
-  if (typeof rawScore === 'number' && Number.isFinite(rawScore)) {
-    score = rawScore;
-  } else if (typeof rawScore === 'string') {
-    const parsed = Number.parseFloat(rawScore);
-    score = Number.isFinite(parsed) ? parsed : null;
-  }
 
   const summary = typeof record.summary === 'string' ? record.summary : null;
   const completedAt = typeof record.completedAt === 'string' ? record.completedAt : null;
@@ -118,7 +116,6 @@ const hydrateAssessmentResult = (value: unknown): AssessmentResult | null => {
   const hrApprovalStatus = normaliseHrApprovalStatus(hrApprovalRaw);
 
   return {
-    score,
     summary,
     strengths: normaliseStringArray(record.strengths),
     developmentAreas: normaliseStringArray(record.developmentAreas ?? record.weaknesses),
@@ -127,6 +124,7 @@ const hydrateAssessmentResult = (value: unknown): AssessmentResult | null => {
     developmentSuggestions: normaliseStringArray(record.developmentSuggestions),
     completedAt,
     hrApprovalStatus,
+    teamFit: normaliseStringArray(record.teamFit),
   };
 };
 
@@ -134,6 +132,8 @@ const initialState: AssessmentState = {
   selectedRole: null,
   assessmentResult: null,
   activeAttempt: null,
+  resolutionStatus: 'idle',
+  nextRoute: null,
 };
 
 const AssessmentContext = createContext<AssessmentContextValue | undefined>(undefined);
@@ -151,6 +151,8 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
           selectedRole: parsed.selectedRole ?? null,
           assessmentResult: hydrateAssessmentResult(parsed.assessmentResult) ?? null,
           activeAttempt: parsed.activeAttempt ?? null,
+          resolutionStatus: 'idle',
+          nextRoute: null,
         });
       }
     } catch (error) {
@@ -218,6 +220,20 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
     });
   }, []);
 
+  const setResolutionStatus = useCallback((status: ResolutionStatus) => {
+    setState((prev) => ({
+      ...prev,
+      resolutionStatus: status,
+    }));
+  }, []);
+
+  const setNextRoute = useCallback((route: string | null) => {
+    setState((prev) => ({
+      ...prev,
+      nextRoute: route,
+    }));
+  }, []);
+
   const resetAssessment = useCallback(() => {
     setState(initialState);
   }, []);
@@ -230,9 +246,11 @@ export const AssessmentProvider = ({ children }: PropsWithChildren<unknown>) => 
       setAssessmentResult,
       setActiveAttempt,
       updateActiveAttempt,
+      setResolutionStatus,
+      setNextRoute,
       resetAssessment,
     }),
-    [state, isHydrated, setSelectedRole, setAssessmentResult, setActiveAttempt, updateActiveAttempt, resetAssessment],
+    [state, isHydrated, setSelectedRole, setAssessmentResult, setActiveAttempt, updateActiveAttempt, setResolutionStatus, setNextRoute, resetAssessment],
   );
 
   return <AssessmentContext.Provider value={value}>{children}</AssessmentContext.Provider>;
@@ -245,4 +263,3 @@ export const useAssessment = () => {
   }
   return context;
 };
-

@@ -1,8 +1,7 @@
 import type { AssessmentResult } from '@/types/assessment';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-const MODEL_NAME = 'gemini-2.5-flash';
+const MODEL_NAME = 'gemini-2.0-flash-exp';
 
 export interface GeminiAnswerPayload {
   questionId: string;
@@ -17,6 +16,7 @@ export interface GeminiAnalysisRequest {
   candidateName: string | null;
   language: 'vi' | 'en';
   answers: GeminiAnswerPayload[];
+  availableTeams?: string[];
 }
 
 export interface GeminiSkillScore {
@@ -26,10 +26,11 @@ export interface GeminiSkillScore {
 
 export interface GeminiAnalysisResponse {
   model: string;
-  overallScore: number | null;
   skillScores: GeminiSkillScore[];
   strengths: string[];
   developmentAreas: string[];
+  recommendedRoles: string[];
+  teamFit: string[];
   summary: string;
   raw: unknown;
 }
@@ -60,6 +61,11 @@ const ensureApiKey = (): string => {
     throw new GeminiApiError('Gemini API key is not configured.');
   }
   return apiKey;
+};
+
+const getGenAIClient = (): GoogleGenerativeAI => {
+  const apiKey = ensureApiKey();
+  return new GoogleGenerativeAI(apiKey);
 };
 
 const resolveNumericEnvValue = (value: unknown): number | null => {
@@ -103,21 +109,22 @@ const MIN_TRUNCATED_ANSWER_CHARS = 400;
 const TRUNCATION_STEP_CHARS = 200;
 
 const buildPrompt = (
-  request: Pick<GeminiAnalysisRequest, 'candidateName' | 'role' | 'language'>,
+  request: Pick<GeminiAnalysisRequest, 'candidateName' | 'role' | 'language' | 'availableTeams'>,
   answers: GeminiAnswerPayload[],
 ): string => {
   const languageInstruction =
     request.language === 'vi'
       ?
-        'Please analyse the answers in Vietnamese. The response must be written in Vietnamese.'
+      'IMPORTANT: You MUST respond in Vietnamese language. All text in the JSON response (summary, strengths, development_areas, skill names) must be written in Vietnamese. Phân tích câu trả lời và trả về kết quả bằng tiếng Việt.'
       :
-        'Please analyse the answers in English. The response must be written in English.';
+      'IMPORTANT: You MUST respond in English language. All text in the JSON response must be written in English.';
 
   const payload = {
     candidate: {
       name: request.candidateName,
       target_role: request.role,
     },
+    available_teams: request.availableTeams,
     answers: answers.map((answer, index) => {
       const serialised: { order: number; answer_text: string; question_id?: string } = {
         order: index + 1,
@@ -132,20 +139,27 @@ const buildPrompt = (
     }),
   } satisfies Record<string, unknown>;
 
-  return [
+  const promptParts = [
     'You are an experienced HR assessor specialising in behavioural and culture-fit interviews.',
     'Evaluate the candidate responses and provide a structured summary.',
+    '',
+    languageInstruction,
+    '',
     'Return a strict JSON object with the following keys:',
-    '- "overall_score": number from 0-100 (integer or float).',
-    '- "skill_scores": array of objects with "name" and "score" (0-100).',
+    '- "skill_scores": array of objects with "name" (string) and "score" (0-100).',
     '- "strengths": array of strings describing positive behaviours.',
     '- "development_areas": array of strings for improvements.',
+    '- "recommended_roles": array of strings suggesting suitable roles for this candidate.',
+    '- "team_fit": array of strings listing the most suitable teams from the provided "available_teams" list. Only select teams that are relevant.',
     '- "summary": a concise paragraph (string) tailored for the candidate.',
-    'Do not include any additional commentary. JSON only.',
-    languageInstruction,
+    '',
+    'Do not include any additional commentary or markdown. Return only valid JSON.',
+    '',
     'Assessment context:',
     JSON.stringify(payload, null, 2),
-  ].join('\n\n');
+  ];
+
+  return promptParts.join('\n');
 };
 
 const truncateAnswers = (
@@ -274,18 +288,20 @@ const parseGeminiPayload = (payload: unknown): GeminiAnalysisResponse => {
   }
 
   const typed = payload as Record<string, unknown>;
-  const overallScore = normaliseNumber(typed.overall_score);
   const skillScores = normaliseSkillScores(typed.skill_scores);
   const strengths = normaliseStringArray(typed.strengths);
   const developmentAreas = normaliseStringArray(typed.development_areas ?? typed.opportunities);
+  const recommendedRoles = normaliseStringArray(typed.recommended_roles);
+  const teamFit = normaliseStringArray(typed.team_fit);
   const summary = typeof typed.summary === 'string' ? typed.summary.trim() : '';
 
   return {
     model: MODEL_NAME,
-    overallScore,
     skillScores,
     strengths,
     developmentAreas,
+    recommendedRoles,
+    teamFit,
     summary,
     raw: payload,
   } satisfies GeminiAnalysisResponse;
@@ -457,10 +473,11 @@ export const analyzeWithGemini = async (
   if (filteredAnswers.length === 0) {
     return {
       model: MODEL_NAME,
-      overallScore: null,
       skillScores: [],
       strengths: [],
       developmentAreas: [],
+      recommendedRoles: [],
+      teamFit: [],
       summary: '',
       raw: null,
     } satisfies GeminiAnalysisResponse;
@@ -470,21 +487,6 @@ export const analyzeWithGemini = async (
     request,
     filteredAnswers,
   );
-
-    const body = {
-    contents: [
-      {
-        parts: [{ text: prompt }],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      topP: 0.9,
-      topK: 32,
-      maxOutputTokens: 3000,
-    },
-  } satisfies Record<string, unknown>;
-
 
   const importMetaEnv = (import.meta as ImportMeta & {
     env?: Record<string, unknown>;
@@ -497,6 +499,9 @@ export const analyzeWithGemini = async (
       : undefined)) ?? ''}`
       .toString()
       .toLowerCase() === 'true';
+
+  console.log('[Gemini] Analysis request started. API Key present:', apiKey ? 'Yes (ends with ' + apiKey.slice(-4) + ')' : 'No');
+  console.log('[Gemini] Debug logs enabled:', debugLogsEnabled);
 
   if (truncated) {
     console.warn('[Gemini] Prompt truncated to respect length limit', {
@@ -530,79 +535,157 @@ export const analyzeWithGemini = async (
     });
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (error) {
-    console.error('[Gemini] Network error while calling API', error);
-    throw new GeminiApiError('Gemini API network error.', { payload: error });
-  }
-
-  if (!response.ok) {
-    let payload: unknown = null;
+  let result: GeminiAnalysisResponse;
+  
+  // Retry logic with exponential backoff for rate limits
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      payload = await response.json();
-    } catch (parseJsonError) {
-      try {
-        payload = await response.text();
-      } catch (parseTextError) {
-        payload = null;
+      if (attempt > 0) {
+        const waitTime = Math.min(1000 * Math.pow(2, attempt), 10000); // Max 10 seconds
+        console.log(`[Gemini] Retry attempt ${attempt + 1}/${maxRetries}, waiting ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+      
+      const genai = getGenAIClient();
+      const model = genai.getGenerativeModel({ model: MODEL_NAME });
+
+      console.log('[Gemini] Making API request using GoogleGenerativeAI SDK');
+
+      const generationConfig = {
+        temperature: 0.2,
+        topP: 0.9,
+        topK: 32,
+        maxOutputTokens: 3000,
+      };
+
+      const response = await model.generateContent(prompt);
+      const responseText = response.response.text();
+      
+      console.log('[Gemini] API response received successfully');
+
+      if (debugLogsEnabled) {
+        console.debug('[Gemini] Raw API response', responseText);
+      }
+
+      const parsed = tryParseJson(responseText);
+      const analysisResult = parseGeminiPayload(parsed);
+
+      result = {
+        ...analysisResult,
+        model: MODEL_NAME,
+      };
+
+      if (debugLogsEnabled) {
+        console.debug('[Gemini] Parsed analysis payload', result);
+      }
+      
+      // Success! Break out of retry loop
+      break;
+      
+    } catch (error) {
+      console.error(`[Gemini] Error on attempt ${attempt + 1}/${maxRetries}:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // Check if this is a rate limit error that we should retry
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+        const isRateLimit = errorMessage.includes('quota') || 
+                           errorMessage.includes('rate limit') || 
+                           errorMessage.includes('too many requests') ||
+                           errorMessage.includes('429');
+        
+        // If it's a rate limit and we have retries left, continue to next attempt
+        if (isRateLimit && attempt < maxRetries - 1) {
+          console.log('[Gemini] Rate limit detected, will retry...');
+          continue;
+        }
+      }
+      
+      // For non-rate-limit errors or last attempt, throw immediately
+      if (attempt === maxRetries - 1) {
+        // This was the last attempt, throw the error
+        break;
       }
     }
-
-    const errorDetails = {
-      status: response.status,
-      statusText: response.statusText,
-      payload,
-      headers: {
-        'x-request-id': response.headers.get('x-request-id'),
-        'retry-after': response.headers.get('retry-after'),
-        'x-ratelimit-limit': response.headers.get('x-ratelimit-limit'),
-        'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining'),
-        'x-ratelimit-reset': response.headers.get('x-ratelimit-reset'),
-      },
-    } as const;
-
-    console.error('[Gemini] API request failed', errorDetails);
-
-    if (response.status === 429) {
+  }
+  
+  // If we exhausted all retries, throw the last error
+  if (!result && lastError) {
+    console.error('[Gemini] All retry attempts failed');
+    
+    // Enhanced error handling with more specific error types
+    if (lastError instanceof Error) {
+      const errorMessage = lastError.message.toLowerCase();
+      
+      // Handle specific Google AI SDK errors
+      if (errorMessage.includes('api_key') || errorMessage.includes('unauthorized') || errorMessage.includes('authentication')) {
+        throw new GeminiApiError(
+          'Gemini API authentication failed. Please check your API key configuration.',
+          { status: 401, payload: lastError.message }
+        );
+      }
+      
+      if (errorMessage.includes('quota') || errorMessage.includes('rate limit') || errorMessage.includes('too many requests')) {
+        throw new GeminiApiError(
+          'Gemini API rate limit exceeded after retries. Please wait a few minutes and try again.',
+          { status: 429, payload: lastError.message }
+        );
+      }
+      
+      if (errorMessage.includes('model') || errorMessage.includes('not found') || errorMessage.includes('invalid model')) {
+        throw new GeminiApiError(
+          'Gemini API model not found or unavailable. Please check model configuration.',
+          { status: 404, payload: lastError.message }
+        );
+      }
+      
+      if (errorMessage.includes('timeout') || errorMessage.includes('deadline exceeded')) {
+        throw new GeminiApiError(
+          'Gemini API request timed out. Please try again.',
+          { status: 408, payload: lastError.message }
+        );
+      }
+      
+      if (errorMessage.includes('content policy') || errorMessage.includes('safety') || errorMessage.includes('blocked')) {
+        throw new GeminiApiError(
+          'Gemini API content policy violation. The request was blocked by safety filters.',
+          { status: 400, payload: lastError.message }
+        );
+      }
+      
+      if (errorMessage.includes('invalid argument') || errorMessage.includes('invalid request')) {
+        throw new GeminiApiError(
+          'Gemini API invalid request. Please check the request parameters.',
+          { status: 400, payload: lastError.message }
+        );
+      }
+      
+      if (errorMessage.includes('network') || errorMessage.includes('connection') || errorMessage.includes('fetch')) {
+        throw new GeminiApiError(
+          'Gemini API network error. Please check your internet connection and try again.',
+          { status: 503, payload: lastError.message }
+        );
+      }
+      
+      // Generic Google AI SDK error
       throw new GeminiApiError(
-        'Gemini API rate limit exceeded. Please wait a moment and try again.',
-        { status: response.status, payload },
+        `Gemini API error: ${lastError.message}`,
+        { status: 500, payload: lastError.message }
       );
     }
 
-    if (response.status === 503) {
-      throw new GeminiApiError('Gemini API is currently unavailable. Please try again later.', {
-        status: response.status,
-        payload,
-      });
-    }
-
-    throw new GeminiApiError('Gemini API request failed.', { status: response.status, payload });
-  }
-
-  const json = await response.json();
-
-  if (debugLogsEnabled) {
-    console.debug('[Gemini] API response', json);
-  }
-
-  const parsed = extractCandidateResponse(json);
-  const result = parseGeminiPayload(parsed);
-
-  if (debugLogsEnabled) {
-    console.debug('[Gemini] Parsed analysis payload', result);
+    // Handle non-Error objects
+    const errorPayload = typeof lastError === 'object' ? JSON.stringify(lastError) : String(lastError);
+    throw new GeminiApiError(
+      'Gemini API error occurred. Unknown error type.',
+      { status: 500, payload: errorPayload }
+    );
   }
 
   return result;
-
 };
 
 const normaliseScore = (value: number | null): number | null => {
@@ -620,7 +703,6 @@ const normaliseTextArray = (values: string[]): string[] =>
     .filter((entry) => entry.length > 0);
 
 export const toAssessmentResult = (analysis: GeminiAnalysisResponse): AssessmentResult => ({
-  score: normaliseScore(analysis.overallScore ?? null),
   summary: analysis.summary?.trim()?.length ? analysis.summary.trim() : null,
   strengths: normaliseTextArray(analysis.strengths),
   developmentAreas: normaliseTextArray(analysis.developmentAreas),
@@ -630,10 +712,11 @@ export const toAssessmentResult = (analysis: GeminiAnalysisResponse): Assessment
       name: item.name.trim(),
       score: normaliseScore(item.score) ?? 0,
     })),
-  recommendedRoles: [],
-  developmentSuggestions: [],
+  recommendedRoles: normaliseTextArray(analysis.recommendedRoles),
+  developmentSuggestions: normaliseTextArray(analysis.developmentAreas),
   completedAt: null,
   hrApprovalStatus: 'pending',
+  teamFit: normaliseTextArray(analysis.teamFit),
 });
 
 export { MODEL_NAME as GEMINI_MODEL_NAME };

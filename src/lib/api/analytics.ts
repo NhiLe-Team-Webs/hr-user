@@ -1,8 +1,8 @@
 import { supabase } from '@/lib/supabaseClient';
 
 interface SupabaseAnalyticsUser {
-  id: string;
-  name: string | null;
+  auth_id: string;
+  full_name: string | null;
   band: string | null;
 }
 
@@ -11,7 +11,6 @@ interface SupabaseAnalyticsAssessment {
 }
 
 interface SupabaseAnalyticsRow {
-  overall_score?: number | null;
   assessment: SupabaseAnalyticsAssessment[] | null;
   user: SupabaseAnalyticsUser[] | null;
 }
@@ -21,20 +20,16 @@ export interface AnalyticsCandidateSummary {
   name: string;
   role: string;
   band: string | null;
-  scores: {
-    overall: number | null;
-  };
   status: 'completed';
 }
 
 export const getAnalyticsData = async (): Promise<AnalyticsCandidateSummary[]> => {
   const { data, error } = await supabase
-    .from('results')
+    .from('interview_results')
     .select(
       `
-        overall_score,
-        assessment:assessments(target_role),
-        user:profiles(id, name, band)
+        assessment:interview_assessments(target_role),
+        user:users(auth_id, full_name, band)
       `,
     );
 
@@ -48,20 +43,17 @@ export const getAnalyticsData = async (): Promise<AnalyticsCandidateSummary[]> =
   return rows
     .map((item) => {
       const user = item.user?.[0] ?? null;
-      if (!user?.id) {
+      if (!user?.auth_id) {
         return null;
       }
 
       const assessment = item.assessment?.[0] ?? null;
 
       return {
-        id: user.id,
-        name: user.name ?? 'Unknown',
+        id: user.auth_id,
+        name: user.full_name ?? 'Unknown',
         role: assessment?.target_role ?? 'Unknown',
         band: user.band ?? null,
-        scores: {
-          overall: item.overall_score ?? null,
-        },
         status: 'completed' as const,
       } satisfies AnalyticsCandidateSummary;
     })

@@ -7,7 +7,6 @@ type NextRoute = '/result' | '/assessment' | '/role-selection';
 
 interface SupabaseResultRow {
   id: string;
-  overall_score?: number | string | null;
   strengths?: unknown;
   weaknesses?: unknown;
   summary?: unknown;
@@ -15,9 +14,10 @@ interface SupabaseResultRow {
   skill_scores?: unknown;
   development_suggestions?: unknown;
   recommended_roles?: unknown;
-  completed_at?: string | null;
+  analysis_completed_at?: string | null;
   hr_review_status?: string | null;
-  profile?: Array<{ band: string | null }> | null;
+  team_fit?: unknown;
+  user?: Array<{ band: string | null }> | null;
   assessment?: Array<{ target_role: string | null }> | null;
 }
 
@@ -56,8 +56,8 @@ const extractHrApprovalStatusFromRow = (row: SupabaseResultRow): HrApprovalStatu
     return reviewStatus;
   }
 
-  const profileRecord = Array.isArray(row.profile) ? row.profile[0] : null;
-  const bandStatus = normaliseHrApprovalStatus(profileRecord?.band ?? null);
+  const userRecord = Array.isArray(row.user) ? row.user[0] : null;
+  const bandStatus = normaliseHrApprovalStatus(userRecord?.band ?? null);
 
   return bandStatus ?? 'pending';
 };
@@ -219,7 +219,7 @@ const resolveSummaryText = (
 };
 
 interface ResolveAssessmentStateOptions {
-  profileId: string;
+  userId: string; // This is Auth ID
   client: SupabaseClient;
 }
 
@@ -249,19 +249,21 @@ const toRole = (roleName: string | null | undefined): Role | null => {
 };
 
 export const resolveAssessmentState = async ({
-  profileId,
+  userId,
   client,
 }: ResolveAssessmentStateOptions): Promise<AssessmentResolution> => {
-  if (!profileId) {
+  console.log('[resolveAssessmentState] Starting for userId (Auth ID):', userId);
+
+  if (!userId) {
+    console.log('[resolveAssessmentState] No userId, returning default');
     return defaultResolution;
   }
 
   const { data: resultData, error: resultError } = await client
-    .from('results')
+    .from('interview_results')
     .select(
       `
         id,
-        overall_score,
         strengths,
         weaknesses,
         summary,
@@ -269,27 +271,29 @@ export const resolveAssessmentState = async ({
         skill_scores,
         development_suggestions,
         recommended_roles,
-        completed_at,
-        profile:profiles(band),
-        assessment:assessments(target_role)
+        analysis_completed_at,
+        hr_review_status,
+        team_fit,
+        user:users!inner(band, auth_id),
+        assessment:interview_assessments(target_role)
       `,
     )
-    .eq('profile_id', profileId)
+    .eq('user.auth_id', userId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (resultError) {
+    console.error('[resolveAssessmentState] Error fetching result:', resultError);
     throw resultError;
   }
 
   const resultRow = (resultData as SupabaseResultRow | null) ?? null;
+  console.log('[resolveAssessmentState] Result row:', resultRow ? 'Found' : 'Not found');
 
   if (resultRow) {
+    console.log('[resolveAssessmentState] User has result, returning /result route');
     const summaryPayload = parseMaybeJsonObject(resultRow.summary ?? null);
-    const summaryScore = normaliseScoreValue(getSummaryField(summaryPayload, 'overall_score'));
-    const fallbackScore = normaliseScoreValue(resultRow.overall_score ?? null);
-    const score = summaryScore ?? fallbackScore;
     const strengths = mergeUniqueStrings(
       normaliseStringArray(resultRow.strengths),
       normaliseStringArray(getSummaryField(summaryPayload, 'strengths')),
@@ -300,14 +304,13 @@ export const resolveAssessmentState = async ({
       nextRoute: '/result',
       selectedRole: toRole(roleName),
       assessmentResult: {
-        score,
         summary: resolveSummaryText(resultRow, summaryPayload),
         strengths,
         developmentAreas: mergeUniqueStrings(
           normaliseStringArray(resultRow.weaknesses),
           normaliseStringArray(
             getSummaryField(summaryPayload, 'development_areas') ??
-              getSummaryField(summaryPayload, 'weaknesses'),
+            getSummaryField(summaryPayload, 'weaknesses'),
           ),
         ),
         skillScores: normaliseSkillScores(
@@ -321,17 +324,21 @@ export const resolveAssessmentState = async ({
           normaliseStringArray(resultRow.development_suggestions),
           normaliseStringArray(getSummaryField(summaryPayload, 'development_suggestions')),
         ),
-        completedAt: resultRow.completed_at ?? null,
+        completedAt: resultRow.analysis_completed_at ?? null,
         hrApprovalStatus: extractHrApprovalStatusFromRow(resultRow),
+        teamFit: mergeUniqueStrings(
+          normaliseStringArray(resultRow.team_fit),
+          normaliseStringArray(getSummaryField(summaryPayload, 'team_fit')),
+        ),
       },
       activeAttempt: null,
     } satisfies AssessmentResolution;
   }
 
   const { data: attemptData, error: attemptError } = await client
-    .from('assessment_attempts')
-    .select('*')
-    .eq('profile_id', profileId)
+    .from('interview_assessment_attempts')
+    .select('*, user:users!inner(auth_id)')
+    .eq('user.auth_id', userId)
     .is('submitted_at', null)
     .neq('status', 'completed')
     .order('created_at', { ascending: false })
@@ -343,8 +350,10 @@ export const resolveAssessmentState = async ({
   }
 
   const attemptRow = (attemptData as AssessmentAttemptRow | null) ?? null;
+  console.log('[resolveAssessmentState] Attempt row:', attemptRow ? 'Found' : 'Not found');
 
   if (attemptRow) {
+    console.log('[resolveAssessmentState] User has active attempt, returning /assessment route');
     return {
       nextRoute: '/assessment',
       selectedRole: toRole(attemptRow.role),
@@ -353,6 +362,7 @@ export const resolveAssessmentState = async ({
     } satisfies AssessmentResolution;
   }
 
+  console.log('[resolveAssessmentState] No result or attempt, returning /role-selection');
   return defaultResolution;
 };
 

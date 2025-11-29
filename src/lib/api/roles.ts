@@ -1,13 +1,19 @@
 import { supabase } from '@/lib/supabaseClient';
 
-interface SupabaseRoleData {
-  target_role: string;
+export interface RoleData {
+  name: string;
+  title: string;
 }
 
-export const getRoles = async (): Promise<string[]> => {
+interface SupabaseRoleData {
+  target_role: string;
+  title: string;
+}
+
+export const getRoles = async (): Promise<RoleData[]> => {
   const { data, error } = await supabase
-    .from('assessments')
-    .select('target_role');
+    .from('interview_assessments')
+    .select('target_role, title');
 
   if (error) {
     console.error('Failed to load roles:', error);
@@ -15,8 +21,11 @@ export const getRoles = async (): Promise<string[]> => {
   }
 
   return ((data as SupabaseRoleData[] | null) ?? [])
-    .map((item) => item.target_role)
-    .filter((role): role is string => Boolean(role));
+    .filter((item) => item.target_role && item.title)
+    .map((item) => ({
+      name: item.target_role,
+      title: item.title,
+    }));
 };
 
 export const createRole = async (roleName: string): Promise<void> => {

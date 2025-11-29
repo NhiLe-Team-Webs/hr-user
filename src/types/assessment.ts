@@ -36,6 +36,7 @@ export interface Assessment {
 }
 
 export interface Role {
+  id: string;
   name: string;
   title: string;
 }
@@ -46,7 +47,6 @@ export interface AssessmentSkillScore {
 }
 
 export interface AssessmentResult {
-  score: number | null;
   summary: string | null;
   strengths: string[];
   developmentAreas: string[];
@@ -55,9 +55,17 @@ export interface AssessmentResult {
   developmentSuggestions: string[];
   completedAt: string | null;
   hrApprovalStatus: HrApprovalStatus;
+  teamFit: string[] | null;
 }
 
 
+
+export interface CheatingEvent {
+  type?: string;
+  questionId: string | null;
+  occurredAt?: string;
+  metadata?: Record<string, unknown>;
+}
 
 export interface AssessmentAttempt {
   id: string;
@@ -74,6 +82,8 @@ export interface AssessmentAttempt {
   lastAiError?: string | null;
   durationSeconds?: number | null;
   averageSecondsPerQuestion?: number | null;
+  questionTimings?: Record<string, number> | null;
   cheatingCount?: number;
+  cheatingEvents?: CheatingEvent[] | null;
 }
 

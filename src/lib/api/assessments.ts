@@ -30,26 +30,35 @@ interface AssessmentPayload {
   }>;
 }
 
-export const getAssessment = async (role: string) => {
-  const { data, error } = await supabase
-    .from('assessments')
+export const getAssessment = async (role: string, roleId?: string) => {
+  // Build query with optional role_id filter
+  let query = supabase
+    .from('interview_assessments')
     .select(
       `
         id,
         title,
         description,
         duration,
-        questions:questions(
+        target_role,
+        questions:interview_questions(
           id,
           text,
           format,
           required,
-          options:question_options(id, option_text, is_correct)
+          options:interview_question_options(id, option_text, is_correct)
         )
       `,
-    )
-    .eq('target_role', role)
-    .single();
+    );
+
+  // Filter by target_role (for backward compatibility) or role_id if provided
+  if (roleId) {
+    query = query.eq('id', roleId);
+  } else {
+    query = query.eq('target_role', role);
+  }
+
+  const { data, error } = await query.single();
 
   if (error) {
     console.error(`Failed to load assessment for role ${role}:`, error);
@@ -88,7 +97,7 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
   }
 
   const { data, error } = await supabase
-    .from('questions')
+    .from('interview_questions')
     .select(
       `
         id,
@@ -98,7 +107,7 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
         required,
         assessment_id,
         created_at,
-        options:question_options(id, option_text, is_correct)
+        options:interview_question_options(id, option_text, is_correct)
       `,
     )
     .in('id', questionIds);
@@ -112,7 +121,8 @@ export const getQuestionsByIds = async (questionIds: string[]): Promise<Question
 };
 
 export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => {
-  const base: Record<string, unknown> = {
+  const base = {
+    attempt_id: payload.attemptId ?? null,
     result_id: payload.resultId ?? null,
     question_id: payload.questionId,
     user_answer_text: payload.userAnswerText ?? null,
@@ -131,7 +141,7 @@ export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => 
 
   if (payload.id) {
     const { data, error } = await supabase
-      .from('answers')
+      .from('interview_answers')
       .update(base)
       .eq('id', payload.id)
       .select()
@@ -146,7 +156,7 @@ export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => 
   }
 
   const { data, error } = await supabase
-    .from('answers')
+    .from('interview_answers')
     .insert(base)
     .select()
     .single();
@@ -159,17 +169,17 @@ export const upsertAnswer = async (payload: AnswerInput): Promise<AnswerRow> => 
   return data as AnswerRow;
 };
 
-interface ProfileRow {
-  id: string;
+interface UserRow {
+  auth_id: string;
   email: string | null;
-  name: string | null;
+  full_name: string | null;
 }
 
-const fetchLatestAssessmentAttempt = async (profileId: string, assessmentId: string) => {
+const fetchLatestAssessmentAttempt = async (authId: string, assessmentId: string) => {
   const { data, error } = await supabase
-    .from('assessment_attempts')
-    .select('*')
-    .eq('profile_id', profileId)
+    .from('interview_assessment_attempts')
+    .select('*, user:users!inner(auth_id)')
+    .eq('user.auth_id', authId)
     .eq('assessment_id', assessmentId)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -183,32 +193,75 @@ const fetchLatestAssessmentAttempt = async (profileId: string, assessmentId: str
   return data as AssessmentAttemptRow | null;
 };
 
-export const ensureProfile = async (payload: ProfileRow): Promise<void> => {
-  const { error } = await supabase
-    .from('profiles')
+export const ensureUser = async (payload: UserRow): Promise<void> => {
+  console.log('[ensureUser] Creating/updating user:', { auth_id: payload.auth_id, email: payload.email, name: payload.full_name });
+
+  const { data, error } = await supabase
+    .from('users')
     .upsert(
       {
-        id: payload.id,
+        auth_id: payload.auth_id,
         email: payload.email,
-        name: payload.name,
+        full_name: payload.full_name,
+        role: 'candidate',
       },
-      { onConflict: 'id' },
-    );
+      { onConflict: 'email' },
+    )
+    .select();
 
   if (error) {
-    console.error('Failed to ensure profile:', error);
+    console.error('[ensureUser] Failed to ensure user:', error);
     throw new Error('Khong the khoi tao ho so nguoi dung.');
   }
+
+  console.log('[ensureUser] User ensured successfully:', data);
 };
 
+/**
+ * Starts a new assessment attempt for a candidate.
+ * 
+ * Note: In this system, roles are defined by the interview_assessments table via the target_role field.
+ * Each assessment has a unique target_role, creating a 1:1 relationship between assessments and roles.
+ * Therefore, the assessmentId effectively serves as the role identifier.
+ * 
+ * @param payload.userId - The Auth ID of the user
+ * @param payload.assessmentId - The assessment ID, which uniquely identifies the role
+ * @param payload.role - The role name (target_role) for display purposes
+ * @param payload.roleId - Optional, for backward compatibility (not stored in database)
+ * @param payload.totalQuestions - Total number of questions in the assessment
+ * @returns The created or updated assessment attempt
+ */
 export const startAssessmentAttempt = async (payload: {
-  profileId: string;
+  userId: string;
   assessmentId: string;
   role: string;
+  roleId?: string;
   totalQuestions: number;
 }): Promise<AssessmentAttempt> => {
+  // Check if user already has a completed result
+  // TEMPORARILY DISABLED FOR TESTING - REMOVE THIS COMMENT WHEN READY FOR PRODUCTION
+  const ALLOW_RETAKE_FOR_TESTING = true; // Set to false in production
+
+  if (!ALLOW_RETAKE_FOR_TESTING) {
+    const { data: existingResult, error: resultError } = await supabase
+      .from('interview_results')
+      .select('id, hr_review_status, user:users!inner(auth_id)')
+      .eq('user.auth_id', payload.userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (resultError) {
+      console.error('Failed to check existing result:', resultError);
+      throw new Error('Khong the kiem tra trang thai danh gia.');
+    }
+
+    if (existingResult) {
+      throw new Error('Ban da hoan thanh danh gia. Khong the lam lai.');
+    }
+  }
+
   const nowIso = new Date().toISOString();
-  const existing = await fetchLatestAssessmentAttempt(payload.profileId, payload.assessmentId);
+  const existing = await fetchLatestAssessmentAttempt(payload.userId, payload.assessmentId);
 
   if (existing && existing.status !== 'completed') {
     const updates: Record<string, unknown> = {
@@ -225,7 +278,7 @@ export const startAssessmentAttempt = async (payload: {
     }
 
     const { data, error } = await supabase
-      .from('assessment_attempts')
+      .from('interview_assessment_attempts')
       .update(updates)
       .eq('id', existing.id)
       .select()
@@ -239,12 +292,24 @@ export const startAssessmentAttempt = async (payload: {
     return mapAssessmentAttempt(data as AssessmentAttemptRow);
   }
 
-  const { data, error } = await supabase
-    .from('assessment_attempts')
+  // Get internal user ID from Auth ID
+  const { data: userData, error: userError } = await supabase
+    .from('users')
+    .select('id')
+    .eq('auth_id', payload.userId)
+    .single();
+
+  if (userError || !userData) {
+    console.error('Failed to find user for assessment:', userError);
+    throw new Error('Khong tim thay thong tin nguoi dung.');
+  }
+
+  const { data, error} = await supabase
+    .from('interview_assessment_attempts')
     .insert({
-      profile_id: payload.profileId,
-      assessment_id: payload.assessmentId,
-      role: payload.role,
+      user_id: userData.id,
+      assessment_id: payload.assessmentId, // assessment_id serves as the role identifier
+      role: payload.role, // Store the role name for display purposes
       total_questions: payload.totalQuestions,
       status: 'in_progress',
       started_at: nowIso,
@@ -306,8 +371,14 @@ export const submitAssessmentAttempt = async (
   }
 
   const { data, error } = await supabase
-    .from('assessment_attempts')
-    .update(updates)
+    .from('interview_assessment_attempts')
+    .update({
+      status: 'awaiting_ai',
+      submitted_at: nowIso,
+      last_activity_at: nowIso,
+      last_ai_error: null,
+      ai_status: 'processing',
+    })
     .eq('id', attemptId)
     .select()
     .single();
@@ -377,7 +448,7 @@ const truncateErrorMessage = (value: string, maxLength = 500) => {
 const logAiFailure = async (attemptId: string, message: string) => {
   const nowIso = new Date().toISOString();
   await supabase
-    .from('assessment_attempts')
+    .from('interview_assessment_attempts')
     .update({
       last_ai_error: truncateErrorMessage(message),
       last_activity_at: nowIso,
@@ -386,14 +457,37 @@ const logAiFailure = async (attemptId: string, message: string) => {
     .eq('id', attemptId);
 };
 
+export interface CheatingEvent {
+  type?: string;
+  questionId: string | null;
+  occurredAt?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AnswerSnapshotItem {
+  questionId: string;
+  questionText: string;
+  questionFormat: string;
+  userAnswer: string;
+  selectedOptionIndex?: number;
+  allOptions?: string[];
+  answeredAt: string;
+}
+
 export interface FinaliseAssessmentOptions {
   attemptId: string;
   assessmentId: string;
-  profileId: string;
+  userId: string; // Auth ID
   role: string;
   candidateName: string | null;
   language: 'vi' | 'en';
   answers: GeminiAnswerPayload[];
+  answersSnapshot?: AnswerSnapshotItem[]; // Full snapshot with all details
+  questionTimings?: Record<string, number>;
+  durationSeconds?: number;
+  averageSecondsPerQuestion?: number;
+  cheatingCount?: number;
+  cheatingEvents?: CheatingEvent[];
 }
 
 export interface FinaliseAssessmentResult {
@@ -406,39 +500,68 @@ export const finaliseAssessmentAttempt = async (
   payload: FinaliseAssessmentOptions,
 ): Promise<FinaliseAssessmentResult> => {
   try {
+    // Fetch available teams with both id and name
+    const { data: teamsData } = await supabase
+      .from('teams')
+      .select('id, name')
+      .is('deleted_at', null);
+
+    const availableTeams = teamsData?.map(t => t.name) || [];
+    const teamsMap = new Map(teamsData?.map(t => [t.name, t.id]) || []);
+
     const analysis: GeminiAnalysisResponse = await analyzeWithGemini({
       role: payload.role,
       candidateName: payload.candidateName,
       language: payload.language,
       answers: payload.answers,
+      availableTeams,
     });
 
     const completedAt = new Date().toISOString();
+
+    // Map team names to team IDs
+    let teamFitId: string | null = null;
+    if (analysis.teamFit.length > 0) {
+      const firstRecommendedTeam = analysis.teamFit[0];
+      teamFitId = teamsMap.get(firstRecommendedTeam) || null;
+    }
 
     const structuredSummary = {
       strengths: analysis.strengths,
       development_areas: analysis.developmentAreas,
       skill_scores: analysis.skillScores,
-      overall_score: analysis.overallScore,
       summary: analysis.summary,
+      team_fit: analysis.teamFit,
     } satisfies Record<string, unknown>;
 
+    // Get internal user ID from Auth ID
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('auth_id', payload.userId)
+      .single();
+
+    if (userError || !userData) {
+      throw new Error('Khong tim thay thong tin nguoi dung.');
+    }
+
     const resultPayload = {
-      profile_id: payload.profileId,
+      user_id: userData.id,
       assessment_id: payload.assessmentId,
-      overall_score: analysis.overallScore,
       strengths: analysis.strengths,
       weaknesses: analysis.developmentAreas,
       development_suggestions: analysis.developmentAreas,
+      recommended_roles: analysis.recommendedRoles,
       skill_scores: analysis.skillScores,
       summary: structuredSummary,
       ai_summary: analysis.summary,
       analysis_model: GEMINI_MODEL_NAME,
       analysis_completed_at: completedAt,
       insight_locale: payload.language,
+      team_fit: teamFitId, // Store team UUID (not array)
     } satisfies Record<string, unknown>;
 
-    const { error: resultError } = await supabase.from('results').insert(resultPayload);
+    const { error: resultError } = await supabase.from('interview_results').insert(resultPayload);
 
     if (resultError) {
       console.error('Failed to persist assessment result:', resultError);
@@ -446,13 +569,19 @@ export const finaliseAssessmentAttempt = async (
     }
 
     const { data: attemptData, error: attemptError } = await supabase
-      .from('assessment_attempts')
+      .from('interview_assessment_attempts')
       .update({
         status: 'completed',
         completed_at: completedAt,
         last_activity_at: completedAt,
         last_ai_error: null,
         ai_status: 'completed',
+        question_timings: payload.questionTimings ?? null,
+        duration_seconds: payload.durationSeconds ?? null,
+        average_seconds_per_question: payload.averageSecondsPerQuestion ?? null,
+        cheating_count: payload.cheatingCount ?? 0,
+        cheating_events: payload.cheatingEvents ?? null,
+        answers_snapshot: payload.answersSnapshot ?? null,
       })
       .eq('id', payload.attemptId)
       .select()
@@ -481,7 +610,7 @@ export const finaliseAssessmentAttempt = async (
 
 interface LatestResultRow {
   id: string;
-  profile_id: string;
+  user_id: string;
   assessment_id: string;
   overall_score?: number | string | null;
   strengths?: unknown;
@@ -495,8 +624,9 @@ interface LatestResultRow {
   analysis_completed_at?: string | null;
   insight_locale?: string | null;
   hr_review_status?: string | null;
-  profile?: Array<{ band: string | null }> | null;
+  user?: Array<{ band: string | null }> | null;
   created_at: string;
+  team_fit?: unknown;
 }
 
 type SummaryPayload = {
@@ -507,6 +637,7 @@ type SummaryPayload = {
   development_suggestions?: unknown;
   overall_score?: unknown;
   summary?: unknown;
+  team_fit?: unknown;
 };
 
 const parseJsonCandidate = (value: unknown): unknown => {
@@ -659,14 +790,14 @@ const normaliseHrApprovalStatus = (value: unknown): HrApprovalStatus => {
   return null;
 };
 
-const extractHrApprovalStatusFromRow = (row: { hr_review_status?: unknown; profile?: Array<{ band?: unknown }> | null }): HrApprovalStatus => {
+const extractHrApprovalStatusFromRow = (row: { hr_review_status?: unknown; user?: Array<{ band?: unknown }> | null }): HrApprovalStatus => {
   const reviewStatus = normaliseHrApprovalStatus(row.hr_review_status);
   if (reviewStatus) {
     return reviewStatus;
   }
 
-  const profileRecord = Array.isArray(row.profile) ? row.profile[0] : null;
-  const bandStatus = normaliseHrApprovalStatus(profileRecord?.band ?? null);
+  const userRecord = Array.isArray(row.user) ? row.user[0] : null;
+  const bandStatus = normaliseHrApprovalStatus(userRecord?.band ?? null);
 
   return bandStatus ?? 'pending';
 };
@@ -707,33 +838,10 @@ const extractSummaryText = (row: LatestResultRow, summary: SummaryPayload | null
   return null;
 };
 
-const resolveScore = (row: LatestResultRow, summary: SummaryPayload | null): number | null => {
-  const candidates: unknown[] = [summary?.overall_score, row.overall_score];
-
-  for (const candidate of candidates) {
-    const parsed = parseJsonCandidate(candidate);
-    if (typeof parsed === 'number' && Number.isFinite(parsed)) {
-      const value = Math.max(0, Math.min(100, parsed));
-      return Math.round(value * 100) / 100;
-    }
-
-    if (typeof parsed === 'string') {
-      const value = Number.parseFloat(parsed);
-      if (Number.isFinite(value)) {
-        const clamped = Math.max(0, Math.min(100, value));
-        return Math.round(clamped * 100) / 100;
-      }
-    }
-  }
-
-  return null;
-};
-
 export interface LatestResultRecord {
   id: string;
   assessmentId: string;
-  profileId: string;
-  score: number | null;
+  userId: string;
   strengths: string[];
   summary: string | null;
   developmentAreas: string[];
@@ -745,24 +853,24 @@ export interface LatestResultRecord {
   completedAt: string | null;
   insightLocale: string | null;
   createdAt: string;
+  teamFit: string[];
 }
 
 export const getLatestResult = async (
-  profileId: string,
+  userId: string, // Auth ID
   assessmentId?: string | null,
 ): Promise<LatestResultRecord | null> => {
-  if (!profileId) {
+  if (!userId) {
     throw new Error('Khong the tai ket qua danh gia.');
   }
 
   let query = supabase
-    .from('results')
+    .from('interview_results')
     .select(
       `
         id,
-        profile_id,
+        user_id,
         assessment_id,
-        overall_score,
         strengths,
         weaknesses,
         development_suggestions,
@@ -773,11 +881,12 @@ export const getLatestResult = async (
         analysis_model,
         analysis_completed_at,
         insight_locale,
-        profile:profiles(band),
+        team_fit,
+        user:users!inner(band, auth_id),
         created_at
       `,
     )
-    .eq('profile_id', profileId);
+    .eq('user.auth_id', userId);
 
   if (assessmentId) {
     query = query.eq('assessment_id', assessmentId);
@@ -796,13 +905,32 @@ export const getLatestResult = async (
 
   const row = data as LatestResultRow;
   const summaryPayload = getSummaryPayload(row);
-  const score = resolveScore(row, summaryPayload);
+
+  // Handle team_fit as UUID and fetch team name
+  let teamFit: string[] = [];
+  if (row.team_fit) {
+    if (typeof row.team_fit === 'string') {
+      // team_fit is a UUID, fetch team name
+      const { data: teamData } = await supabase
+        .from('teams')
+        .select('name')
+        .eq('id', row.team_fit)
+        .is('deleted_at', null)
+        .maybeSingle();
+      
+      if (teamData?.name) {
+        teamFit = [teamData.name];
+      }
+    } else {
+      // Fallback to old format (JSONB array of team names)
+      teamFit = collectStringValues(row.team_fit, summaryPayload?.team_fit);
+    }
+  }
 
   return {
     id: row.id,
     assessmentId: row.assessment_id,
-    profileId: row.profile_id,
-    score,
+    userId: row.user_id,
     strengths: extractStrengthsFromResult(row, summaryPayload),
     summary: extractSummaryText(row, summaryPayload),
     developmentAreas: extractDevelopmentAreasFromResult(row, summaryPayload),
@@ -814,7 +942,6 @@ export const getLatestResult = async (
     completedAt: typeof row.analysis_completed_at === 'string' ? row.analysis_completed_at : null,
     insightLocale: typeof row.insight_locale === 'string' ? row.insight_locale : null,
     createdAt: row.created_at,
+    teamFit,
   } satisfies LatestResultRecord;
 };
-
-
