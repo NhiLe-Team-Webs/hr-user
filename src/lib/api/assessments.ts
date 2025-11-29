@@ -614,6 +614,10 @@ export const finaliseAssessmentAttempt = async (
       result = data;
     }
 
+    // COMMENTED OUT: Saving answers_snapshot
+    // REASON: Feature is currently broken and causing issues
+    // TODO: Re-enable when fixed
+    /*
     console.log('[finaliseAssessmentAttempt] Saving answers_snapshot:', {
       count: payload.answersSnapshot?.length ?? 0,
       snapshot: payload.answersSnapshot,
@@ -635,6 +639,8 @@ export const finaliseAssessmentAttempt = async (
         validatedSnapshot = null;
       }
     }
+    */
+    const validatedSnapshot = null; // Disabled for now
 
     const { data: attemptData, error: attemptError } = await supabase
       .from('interview_assessment_attempts')
@@ -649,7 +655,7 @@ export const finaliseAssessmentAttempt = async (
         average_seconds_per_question: payload.averageSecondsPerQuestion ?? null,
         cheating_count: payload.cheatingCount ?? 0,
         cheating_events: payload.cheatingEvents ?? null,
-        answers_snapshot: validatedSnapshot,
+        // answers_snapshot: validatedSnapshot, // DISABLED
       })
       .eq('id', payload.attemptId)
       .select()
@@ -666,12 +672,15 @@ export const finaliseAssessmentAttempt = async (
       throw new Error('Khong the cap nhat trang thai bai danh gia.');
     }
 
+    // COMMENTED OUT: Log answers_snapshot status
+    /*
     console.log('[finaliseAssessmentAttempt] Attempt updated successfully:', {
       attemptId: attemptData.id,
       hasAnswersSnapshot: !!attemptData.answers_snapshot,
       snapshotType: typeof attemptData.answers_snapshot,
       snapshotLength: Array.isArray(attemptData.answers_snapshot) ? attemptData.answers_snapshot.length : 0,
     });
+    */
 
     return {
       attempt: mapAssessmentAttempt(attemptData as AssessmentAttemptRow),

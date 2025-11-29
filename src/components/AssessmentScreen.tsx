@@ -579,7 +579,10 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           (item): item is FinaliseAssessmentOptions['answers'][number] => item !== null,
         );
 
-      // Create detailed answers snapshot for dashboard display
+      // COMMENTED OUT: Create detailed answers snapshot for dashboard display
+      // REASON: Feature is currently broken and causing issues
+      // TODO: Re-enable when fixed
+      /*
       // Use userAnswers as the primary source since it contains the latest state
       const answersSnapshot = questions
         .map((question, index) => {
@@ -679,9 +682,10 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
             isCorrect: null, // Cannot auto-grade open-ended questions
           };
         });
+      */
+      const answersSnapshot = undefined; // Disabled for now
 
-
-      // answersSnapshot created
+      // answersSnapshot created (DISABLED)
 
       const rawName =
         (typeof user.user_metadata?.full_name === 'string'
