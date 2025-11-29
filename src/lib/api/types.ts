@@ -23,9 +23,8 @@ export interface CandidateInfo {
 
 export interface AnswerRow {
   id: string;
-  attempt_id: string | null;
-  result_id: string | null;
   attempt_id?: string | null;
+  result_id: string | null;
   question_id: string;
   user_answer_text: string | null;
   selected_option_id: string | null;

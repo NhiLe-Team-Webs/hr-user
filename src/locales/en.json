@@ -161,7 +161,11 @@
     "aiFailedTitle": "We couldn’t generate your result",
     "aiFailedDescription": "An error occurred while creating your AI summary. Please try again.",
     "aiFailedDescriptionWithError": "An error occurred while creating your AI summary. Please try again. (Details: {error})",
-    "aiRetryCta": "Try again"
+    "aiRetryCta": "Try again",
+    "aiUnavailableTitle": "AI Analysis Unavailable",
+    "aiUnavailableMessage": "Our AI analysis service was temporarily unavailable. Your assessment has been submitted successfully and our HR team will review your responses manually. You will be notified once the review is complete.",
+    "aiUnavailableSummary": "Your assessment has been submitted successfully. Our HR team will review your responses and provide feedback soon.",
+    "pendingHrReview": "Pending HR review"
   },
   "tryoutScreen": {
     "title": "Welcome to the Tryout Center",

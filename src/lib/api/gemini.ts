@@ -33,6 +33,7 @@ export interface GeminiAnalysisResponse {
   teamFit: string[];
   summary: string;
   raw: unknown;
+  retryCount?: number; // Number of retries attempted before success or failure
 }
 
 export class GeminiApiError extends Error {
@@ -535,15 +536,17 @@ export const analyzeWithGemini = async (
     });
   }
 
-  let result: GeminiAnalysisResponse;
+  let result: GeminiAnalysisResponse | undefined;
   
   // Retry logic with exponential backoff for rate limits
   const maxRetries = 3;
   let lastError: Error | null = null;
+  let retryCount = 0;
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       if (attempt > 0) {
+        retryCount = attempt;
         const waitTime = Math.min(1000 * Math.pow(2, attempt), 10000); // Max 10 seconds
         console.log(`[Gemini] Retry attempt ${attempt + 1}/${maxRetries}, waiting ${waitTime}ms...`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -576,6 +579,7 @@ export const analyzeWithGemini = async (
       result = {
         ...analysisResult,
         model: MODEL_NAME,
+        retryCount,
       };
 
       if (debugLogsEnabled) {
@@ -588,6 +592,7 @@ export const analyzeWithGemini = async (
     } catch (error) {
       console.error(`[Gemini] Error on attempt ${attempt + 1}/${maxRetries}:`, error);
       lastError = error instanceof Error ? error : new Error(String(error));
+      retryCount = attempt + 1;
       
       // Check if this is a rate limit error that we should retry
       if (error instanceof Error) {
@@ -614,7 +619,7 @@ export const analyzeWithGemini = async (
   
   // If we exhausted all retries, throw the last error
   if (!result && lastError) {
-    console.error('[Gemini] All retry attempts failed');
+    console.error('[Gemini] All retry attempts failed', { retryCount });
     
     // Enhanced error handling with more specific error types
     if (lastError instanceof Error) {
@@ -623,69 +628,69 @@ export const analyzeWithGemini = async (
       // Handle specific Google AI SDK errors
       if (errorMessage.includes('api_key') || errorMessage.includes('unauthorized') || errorMessage.includes('authentication')) {
         throw new GeminiApiError(
-          'Gemini API authentication failed. Please check your API key configuration.',
-          { status: 401, payload: lastError.message }
+          `Gemini API authentication failed after ${retryCount} retries. Please check your API key configuration.`,
+          { status: 401, payload: { message: lastError.message, retryCount } }
         );
       }
       
       if (errorMessage.includes('quota') || errorMessage.includes('rate limit') || errorMessage.includes('too many requests')) {
         throw new GeminiApiError(
-          'Gemini API rate limit exceeded after retries. Please wait a few minutes and try again.',
-          { status: 429, payload: lastError.message }
+          `Gemini API rate limit exceeded after ${retryCount} retries. Please wait a few minutes and try again.`,
+          { status: 429, payload: { message: lastError.message, retryCount } }
         );
       }
       
       if (errorMessage.includes('model') || errorMessage.includes('not found') || errorMessage.includes('invalid model')) {
         throw new GeminiApiError(
-          'Gemini API model not found or unavailable. Please check model configuration.',
-          { status: 404, payload: lastError.message }
+          `Gemini API model not found or unavailable after ${retryCount} retries. Please check model configuration.`,
+          { status: 404, payload: { message: lastError.message, retryCount } }
         );
       }
       
       if (errorMessage.includes('timeout') || errorMessage.includes('deadline exceeded')) {
         throw new GeminiApiError(
-          'Gemini API request timed out. Please try again.',
-          { status: 408, payload: lastError.message }
+          `Gemini API request timed out after ${retryCount} retries. Please try again.`,
+          { status: 408, payload: { message: lastError.message, retryCount } }
         );
       }
       
       if (errorMessage.includes('content policy') || errorMessage.includes('safety') || errorMessage.includes('blocked')) {
         throw new GeminiApiError(
-          'Gemini API content policy violation. The request was blocked by safety filters.',
-          { status: 400, payload: lastError.message }
+          `Gemini API content policy violation after ${retryCount} retries. The request was blocked by safety filters.`,
+          { status: 400, payload: { message: lastError.message, retryCount } }
         );
       }
       
       if (errorMessage.includes('invalid argument') || errorMessage.includes('invalid request')) {
         throw new GeminiApiError(
-          'Gemini API invalid request. Please check the request parameters.',
-          { status: 400, payload: lastError.message }
+          `Gemini API invalid request after ${retryCount} retries. Please check the request parameters.`,
+          { status: 400, payload: { message: lastError.message, retryCount } }
         );
       }
       
       if (errorMessage.includes('network') || errorMessage.includes('connection') || errorMessage.includes('fetch')) {
         throw new GeminiApiError(
-          'Gemini API network error. Please check your internet connection and try again.',
-          { status: 503, payload: lastError.message }
+          `Gemini API network error after ${retryCount} retries. Please check your internet connection and try again.`,
+          { status: 503, payload: { message: lastError.message, retryCount } }
         );
       }
       
       // Generic Google AI SDK error
       throw new GeminiApiError(
-        `Gemini API error: ${lastError.message}`,
-        { status: 500, payload: lastError.message }
+        `Gemini API error after ${retryCount} retries: ${lastError.message}`,
+        { status: 500, payload: { message: lastError.message, retryCount } }
       );
     }
 
     // Handle non-Error objects
     const errorPayload = typeof lastError === 'object' ? JSON.stringify(lastError) : String(lastError);
     throw new GeminiApiError(
-      'Gemini API error occurred. Unknown error type.',
-      { status: 500, payload: errorPayload }
+      `Gemini API error occurred after ${retryCount} retries. Unknown error type.`,
+      { status: 500, payload: { message: errorPayload, retryCount } }
     );
   }
 
-  return result;
+  return result!;
 };
 
 const normaliseScore = (value: number | null): number | null => {
@@ -717,6 +722,7 @@ export const toAssessmentResult = (analysis: GeminiAnalysisResponse): Assessment
   completedAt: null,
   hrApprovalStatus: 'pending',
   teamFit: normaliseTextArray(analysis.teamFit),
+  aiAnalysisAvailable: true,
 });
 
 export { MODEL_NAME as GEMINI_MODEL_NAME };

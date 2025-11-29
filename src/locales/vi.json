@@ -161,7 +161,11 @@
     "aiFailedTitle": "Không thể tạo kết quả",
     "aiFailedDescription": "Đã xảy ra lỗi khi phân tích bằng AI. Vui lòng thử lại.",
     "aiFailedDescriptionWithError": "Đã xảy ra lỗi khi phân tích bằng AI. Vui lòng thử lại. (Chi tiết: {error})",
-    "aiRetryCta": "Thử lại"
+    "aiRetryCta": "Thử lại",
+    "aiUnavailableTitle": "Phân tích AI không khả dụng",
+    "aiUnavailableMessage": "Dịch vụ phân tích AI tạm thời không khả dụng. Bài đánh giá của bạn đã được gửi thành công và đội ngũ HR sẽ xem xét câu trả lời của bạn thủ công. Bạn sẽ được thông báo khi quá trình xem xét hoàn tất.",
+    "aiUnavailableSummary": "Bài đánh giá của bạn đã được gửi thành công. Đội ngũ HR sẽ xem xét câu trả lời của bạn và cung cấp phản hồi sớm.",
+    "pendingHrReview": "Đang chờ HR xem xét"
   },
   "tryoutScreen": {
     "title": "Chào Mừng Đến Trung Tâm Thử Việc",
