@@ -48,7 +48,12 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const currentQuestionIndex = (questionIndexParam ? questionIndexParam : 1) - 1;
 
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
-  const [answerRecords, setAnswerRecords] = useState<Record<string, { id: string; value: string }>>({});
+  const [answerRecords, setAnswerRecords] = useState<Record<string, { id: string; value: string; timeSpentSeconds?: number | null }>>({});
+  
+  // Refs for tracking question timing
+  const questionTimeSpentRef = useRef<Record<string, number>>({});
+  const questionStartTimeRef = useRef<number | null>(null);
+  const activeQuestionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     console.log('[AssessmentScreen] Mounted. activeAttempt:', activeAttempt?.id, 'role:', role.name);
@@ -463,13 +468,14 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
 
     const totalDurationSeconds = Math.max(0, Math.round(calculateTotalDuration()));
     const totalQuestions = questions.length || activeAttempt.totalQuestions || 0;
-    const averageSecondsPerQuestion =
-      totalQuestions > 0 ? totalDurationSeconds / totalQuestions : null;
 
     if (isMountedRef.current) {
       setSubmissionError(null);
       setIsFinalising(true);
     }
+
+    const averageSecondsPerQuestion =
+      totalQuestions > 0 ? totalDurationSeconds / totalQuestions : null;
 
     try {
       const updatedAttempt = await submitAssessmentAttempt(activeAttempt.id, {
@@ -523,44 +529,102 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       const answersSnapshot = questions
         .map((question, index) => {
           const rawValue = userAnswers[index];
-          if (typeof rawValue === 'undefined' || rawValue === null) {
-            return null;
-          }
-
-          const allOptions = question.options?.map((option) => option.text ?? option.optionText ?? '') ?? [];
-
-          if (question.format === 'multiple_choice') {
-            const optionIndex = Number(rawValue);
-            const option = question.options?.[optionIndex];
-            if (!option) {
-              return null;
-            }
-            return {
-              questionId: question.id,
-              questionText: question.text,
-              questionFormat: question.format,
-              userAnswer: option.text ?? option.optionText ?? '',
-              selectedOptionIndex: optionIndex,
-              allOptions,
-              answeredAt: new Date().toISOString(),
-            };
-          }
-
-          const textValue = String(rawValue).trim();
-          if (!textValue) {
-            return null;
-          }
-
-          return {
+          
+          // Base info for all questions (answered or not)
+          const baseInfo = {
+            questionNumber: index + 1,
             questionId: question.id,
             questionText: question.text,
             questionFormat: question.format,
-            userAnswer: textValue,
-            allOptions: [],
             answeredAt: new Date().toISOString(),
           };
-        })
-        .filter((item): item is NonNullable<typeof item> => item !== null);
+
+          if (question.format === 'multiple_choice') {
+            const allOptions = question.options?.map((option, optIdx) => ({
+              index: optIdx,
+              text: option.text ?? option.optionText ?? '',
+              isCorrect: option.isCorrect ?? false,
+            })) ?? [];
+
+            // Find correct answer
+            const correctOptionIndex = allOptions.findIndex(opt => opt.isCorrect);
+            const correctAnswer = correctOptionIndex >= 0 ? allOptions[correctOptionIndex].text : null;
+
+            if (typeof rawValue === 'undefined' || rawValue === null) {
+              // Not answered
+              return {
+                ...baseInfo,
+                allOptions: allOptions.map(opt => opt.text),
+                userAnswer: null,
+                selectedOptionIndex: null,
+                correctAnswer,
+                isCorrect: false,
+              };
+            }
+
+            const optionIndex = Number(rawValue);
+            const selectedOption = question.options?.[optionIndex];
+            
+            if (!selectedOption) {
+              return {
+                ...baseInfo,
+                allOptions: allOptions.map(opt => opt.text),
+                userAnswer: null,
+                selectedOptionIndex: null,
+                correctAnswer,
+                isCorrect: false,
+              };
+            }
+
+            return {
+              ...baseInfo,
+              allOptions: allOptions.map(opt => opt.text),
+              userAnswer: selectedOption.text ?? selectedOption.optionText ?? '',
+              selectedOptionIndex: optionIndex,
+              correctAnswer,
+              isCorrect: selectedOption.isCorrect ?? false,
+            };
+          }
+
+          // Open-ended or essay questions
+          let textValue = '';
+          if (typeof rawValue === 'string') {
+            textValue = rawValue.trim();
+          } else if (rawValue !== undefined && rawValue !== null) {
+            textValue = String(rawValue).trim();
+          }
+          
+          console.log('[AssessmentScreen] Processing open-ended question:', {
+            questionIndex: index,
+            questionId: question.id,
+            rawValue,
+            rawValueType: typeof rawValue,
+            textValue,
+            textValueLength: textValue.length,
+            hasValue: !!textValue,
+          });
+          
+          return {
+            ...baseInfo,
+            userAnswer: textValue || null,
+            allOptions: [],
+            correctAnswer: null,
+            isCorrect: null, // Cannot auto-grade open-ended questions
+          };
+        });
+
+      console.log('[AssessmentScreen] Before creating snapshot:', {
+        totalQuestions: questions.length,
+        userAnswersCount: Object.keys(userAnswers).length,
+        userAnswersKeys: Object.keys(userAnswers),
+        userAnswers: userAnswers,
+      });
+
+      console.log('[AssessmentScreen] answersSnapshot created:', {
+        totalQuestions: questions.length,
+        snapshotCount: answersSnapshot.length,
+        snapshot: answersSnapshot,
+      });
 
       const rawName =
         (typeof user.user_metadata?.full_name === 'string'
@@ -578,7 +642,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       };
 
       const durationSeconds = Math.floor((now - totalStartTime) / 1000);
-      const averageSecondsPerQuestion = questions.length > 0 ? durationSeconds / questions.length : 0;
+      const finalAverageSecondsPerQuestion = questions.length > 0 ? durationSeconds / questions.length : 0;
 
       finalisePayloadRef.current = {
         attemptId: updatedAttempt.id,
@@ -591,7 +655,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         answersSnapshot,
         questionTimings: finalQuestionTimings,
         durationSeconds,
-        averageSecondsPerQuestion,
+        averageSecondsPerQuestion: finalAverageSecondsPerQuestion,
         cheatingCount: cheatingEvents.length,
         cheatingEvents: cheatingEvents.map(event => ({
           type: event.type,
@@ -600,6 +664,11 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           metadata: event.metadata,
         })),
       } satisfies FinaliseAssessmentOptions;
+
+      console.log('[AssessmentScreen] finalisePayloadRef.current:', {
+        answersSnapshotCount: finalisePayloadRef.current.answersSnapshot?.length ?? 0,
+        answersSnapshot: finalisePayloadRef.current.answersSnapshot,
+      });
 
       await runAiAnalysis();
     } catch (error) {
@@ -779,11 +848,16 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   }, [timeLeft, finishAssessment]);
 
   const handleOptionSelect = (optionIndex: number) => {
+    console.log('[AssessmentScreen] handleOptionSelect:', {
+      questionIndex: currentQuestionIndex,
+      optionIndex,
+      currentAnswersCount: Object.keys(userAnswers).length,
+    });
     setUserAnswers(prev => ({
       ...prev,
       [currentQuestionIndex]: optionIndex
     }));
-    void ensureAnswerPersisted(currentQuestionIndex, optionIndex);
+    void ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: optionIndex });
   };
 
   const navigateQuestion = useCallback(
@@ -893,6 +967,15 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       );
     }
 
+    console.log('[AssessmentScreen] Rendering question:', {
+      index: currentQuestionIndex,
+      id: question.id,
+      format: question.format,
+      isMultipleChoice: question.format === 'multiple_choice',
+      hasOptions: !!question.options,
+      optionsCount: question.options?.length ?? 0,
+    });
+
     return (
       <div className="space-y-8">
         <motion.div
@@ -950,10 +1033,26 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
               }
               onChange={(event) => {
                 if (!isFinalising) {
-                  setUserAnswers(prev => ({
-                    ...prev,
-                    [currentQuestionIndex]: event.target.value
-                  }));
+                  const newValue = event.target.value;
+                  console.log('[AssessmentScreen] Textarea onChange:', {
+                    questionIndex: currentQuestionIndex,
+                    valueLength: newValue.length,
+                    value: newValue.substring(0, 50), // Log first 50 chars
+                  });
+                  setUserAnswers(prev => {
+                    const updated = {
+                      ...prev,
+                      [currentQuestionIndex]: newValue
+                    };
+                    console.log('[AssessmentScreen] Updated userAnswers:', {
+                      keys: Object.keys(updated),
+                      count: Object.keys(updated).length,
+                    });
+                    return updated;
+                  });
+                  
+                  // Auto-persist after typing (debounced by ensureAnswerPersisted logic)
+                  void ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: newValue });
                 }
               }}
               onPaste={(event) => {
