@@ -25,10 +25,12 @@ export interface AnswerRow {
   id: string;
   attempt_id: string | null;
   result_id: string | null;
+  attempt_id?: string | null;
   question_id: string;
   user_answer_text: string | null;
   selected_option_id: string | null;
   created_at: string;
+  time_spent_seconds?: number | null;
 }
 
 export interface AnswerInput {
@@ -38,6 +40,7 @@ export interface AnswerInput {
   questionId: string;
   userAnswerText?: string | null;
   selectedOptionId?: string | null;
+  timeSpentSeconds?: number | null;
 }
 
 export interface AssessmentAttemptRow {

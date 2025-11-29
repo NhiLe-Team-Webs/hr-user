@@ -1,6 +1,19 @@
 import type { AssessmentAttempt } from '@/types/assessment';
 import type { AssessmentAttemptRow } from './types';
 
+const parseNullableNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
 export const mapAssessmentAttempt = (row: AssessmentAttemptRow): AssessmentAttempt => ({
   id: row.id,
   assessmentId: row.assessment_id,

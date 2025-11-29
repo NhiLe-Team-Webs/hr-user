@@ -17,5 +17,6 @@ export {
   type FinaliseAssessmentResult,
   getLatestResult,
   type LatestResultRecord,
+  updateAssessmentAttemptMeta,
 } from './assessments';
 export { resolveAssessmentState, type AssessmentResolution } from './resolveAssessmentState';
