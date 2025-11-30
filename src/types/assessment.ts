@@ -71,6 +71,7 @@ export interface CheatingEvent {
 export interface AssessmentAttempt {
   id: string;
   assessmentId: string;
+  role?: string;
   status: string;
   answeredCount: number;
   totalQuestions: number;

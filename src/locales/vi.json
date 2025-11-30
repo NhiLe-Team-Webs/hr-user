@@ -86,7 +86,10 @@
     "signupsDisabledError": "Đăng ký hiện đang bị tắt. Vui lòng liên hệ quản trị viên hoặc sử dụng đăng nhập Google.",
     "emailNotConfirmedError": "Vui lòng kiểm tra email và nhấp vào liên kết xác nhận trước khi đăng nhập. Kiểm tra thư mục spam nếu bạn không thấy email.",
     "emailConfirmationTitle": "Xác nhận email của bạn",
-    "emailConfirmationMessage": "Chúng tôi đã gửi liên kết xác nhận đến {email}. Vui lòng kiểm tra hộp thư và nhấp vào liên kết để kích hoạt tài khoản, sau đó quay lại đây để đăng nhập."
+    "emailConfirmationMessage": "Chúng tôi đã gửi liên kết xác nhận đến {email}. Vui lòng kiểm tra hộp thư và nhấp vào liên kết để kích hoạt tài khoản, sau đó quay lại đây để đăng nhập.",
+    "resendButton": "Gửi lại email",
+    "emailSent": "Email đã được gửi",
+    "checkInbox": "Vui lòng kiểm tra hộp thư để nhận email xác nhận."
   },
   "roleSelectionScreen": {
     "title": "Chọn vị trí bạn quan tâm",

@@ -49,7 +49,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
 
   const [userAnswers, setUserAnswers] = useState<UserAnswers>({});
   const [answerRecords, setAnswerRecords] = useState<Record<string, { id: string; value: string; timeSpentSeconds?: number | null }>>({});
-  
+
   // Refs for tracking question timing
   const questionTimeSpentRef = useRef<Record<string, number>>({});
   const questionStartTimeRef = useRef<number | null>(null);
@@ -75,7 +75,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const finalisePayloadRef = useRef<FinaliseAssessmentOptions | null>(null);
   const isMountedRef = useRef(true);
   const [hasStoredState, setHasStoredState] = useState(false);
-  
+
   // Cheating detection state
   interface CheatingEvent {
     type: 'tab_switch' | 'copy_paste';
@@ -236,9 +236,9 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       questions.map((_, index) => {
         const timeSpent = getTimeSpentForQuestion(index);
         const rawValue = userAnswers[index];
-        
+
         // Persisting all answers
-        
+
         return ensureAnswerPersisted(index, {
           overrideRawValue: rawValue, // Explicitly pass the value
           timeSpentSeconds: typeof timeSpent === 'number' ? timeSpent : undefined,
@@ -258,7 +258,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       }
 
       try {
-        await updateAssessmentAttemptMeta(activeAttempt.id, { cheatingCount: count });
+        await updateAssessmentAttemptMeta(activeAttempt.id, { cheating_count: count });
         updateActiveAttempt({ cheatingCount: count });
       } catch (error) {
         // Failed to update cheating count
@@ -391,23 +391,23 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       await runAiAnalysis();
     } catch (error) {
       // Failed to retry AI analysis
-      
+
       // Check if this is a GeminiApiError with retry information
       const isGeminiError = error instanceof GeminiApiError;
       const retryCount = isGeminiError && error.payload && typeof error.payload === 'object'
         ? (error.payload as { retryCount?: number }).retryCount
         : 0;
-      
+
       // Update attempt status to indicate AI failure
       updateActiveAttempt({
         aiStatus: 'failed',
         lastAiError: error instanceof Error ? error.message : null,
       });
-      
+
       // If we've exhausted retries (3 attempts), redirect to results screen
       if (retryCount >= 3) {
         // Retry limit reached in retry, redirecting to results screen
-        
+
         // Create a partial result without AI analysis
         const partialResult: AssessmentResult = {
           summary: null,
@@ -421,9 +421,9 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           teamFit: null,
           aiAnalysisAvailable: false,
         };
-        
+
         setAssessmentResult(partialResult);
-        
+
         if (isMountedRef.current) {
           setIsFinalising(false);
           onFinish(); // Navigate to results screen
@@ -687,10 +687,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
 
       // answersSnapshot created (DISABLED)
 
-      const rawName =
-        (typeof user.user_metadata?.full_name === 'string'
-          ? user.user_metadata.full_name
-          : undefined) ?? user.email ?? null;
+      const rawName = user.full_name ?? user.email ?? null;
 
       // Calculate final timings
       const now = Date.now();
@@ -731,24 +728,24 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       await runAiAnalysis();
     } catch (error) {
       // Failed to finalise assessment attempt
-      
+
       // Check if this is a GeminiApiError with retry information
       const isGeminiError = error instanceof GeminiApiError;
       const retryCount = isGeminiError && error.payload && typeof error.payload === 'object'
         ? (error.payload as { retryCount?: number }).retryCount
         : 0;
-      
+
       // Update attempt status to indicate AI failure
       updateActiveAttempt({
         aiStatus: 'failed',
         lastAiError: error instanceof Error ? error.message : null,
       });
-      
+
       // If we've exhausted retries (3 attempts), redirect to results screen
       // with a partial result (no AI analysis)
       if (retryCount >= 3) {
         // Retry limit reached, redirecting to results screen
-        
+
         // Create a partial result without AI analysis
         const partialResult: AssessmentResult = {
           summary: null,
@@ -762,9 +759,9 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           teamFit: null,
           aiAnalysisAvailable: false,
         };
-        
+
         setAssessmentResult(partialResult);
-        
+
         if (isMountedRef.current) {
           setIsFinalising(false);
           onFinish(); // Navigate to results screen
@@ -952,15 +949,15 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const navigateQuestion = useCallback(
     async (direction: number) => {
       updateQuestionTiming();
-      
+
       // Persist current question's answer before navigating
       const currentAnswer = userAnswers[currentQuestionIndex];
       // Persisting current answer
-      
+
       await ensureAnswerPersisted(currentQuestionIndex, {
         overrideRawValue: currentAnswer,
       });
-      
+
       const newIndex = currentQuestionIndex + direction;
       if (newIndex >= 0 && newIndex < questions.length) {
         navigate(`/assessment/${role.name}/q/${newIndex + 1}`);
@@ -1133,7 +1130,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
                     // Updated userAnswers
                     return updated;
                   });
-                  
+
                   // Auto-persist after typing (debounced by ensureAnswerPersisted logic)
                   void ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: newValue });
                 }
