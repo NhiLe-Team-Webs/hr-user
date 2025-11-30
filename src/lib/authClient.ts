@@ -35,7 +35,7 @@ export const auth = {
       const response = await apiClient.post<{ success: boolean; data: { user: User; session: { access_token: string; refresh_token: string; expires_in: number; expires_at: number } } }>('/hr/auth/login', {
         email,
         password,
-      });
+      }, { skipAuthRedirect: true });
 
       // Backend returns { success: true, data: { user, session } }
       // Transform to Session format expected by frontend
@@ -60,7 +60,7 @@ export const auth = {
         email,
         password,
         full_name: fullName,
-      });
+      }, { skipAuthRedirect: true });
 
       // Backend returns { success: true, data: { user, session } }
       // Transform to Session format expected by frontend
