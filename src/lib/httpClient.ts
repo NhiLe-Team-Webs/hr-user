@@ -71,6 +71,9 @@ const resolveHeaders = (body: RequestOptions['body']): HeadersInit => {
   const accessToken = localStorage.getItem('access_token');
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
+    console.log('[httpClient] Adding auth token to request');
+  } else {
+    console.warn('[httpClient] No access token found in localStorage');
   }
 
   return headers;

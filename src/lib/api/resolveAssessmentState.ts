@@ -1,7 +1,7 @@
 import type { Role, AssessmentResult, AssessmentAttempt } from '@/types/assessment';
 import { apiClient } from '@/lib/httpClient';
 
-type NextRoute = '/result' | '/assessment' | '/role-selection';
+type NextRoute = string; // More flexible to allow any route string
 
 export interface AssessmentResolution {
   nextRoute: NextRoute;

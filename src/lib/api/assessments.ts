@@ -88,7 +88,7 @@ export const getAssessment = async (role: string, roleId?: string) => {
 
     // Fetch questions for this role
     const questionsResponse = await apiClient.get<any>('/hr/questions', {
-      query: { role, include_options: true },
+      query: { role, include_options: 'true' },
     });
 
     const questions = questionsResponse.success && questionsResponse.data?.questions
@@ -109,8 +109,8 @@ export const getAssessment = async (role: string, roleId?: string) => {
         points: question.points || 0,
         options: (question.options || []).map((option: any) => ({
           id: option.id,
-          text: option.option_text,
-          optionText: option.option_text,
+          text: option.text,
+          optionText: option.text,
           isCorrect: option.is_correct,
         })),
         correctAnswer: (question.options || []).find((option: any) => option.is_correct)?.id,
@@ -266,18 +266,32 @@ export const submitAssessmentAttempt = async (
   }
 };
 
-export const finaliseAssessmentAttempt = async (payload: {
+export interface FinaliseAssessmentOptions {
   attemptId: string;
-  answersSnapshot: AnswerSnapshotItem[];
   durationSeconds: number;
-}): Promise<{ attempt: AssessmentAttempt; result: AssessmentResult | null; aiStatus: string }> => {
+  answersSnapshot?: AnswerSnapshotItem[];
+}
+
+export interface FinaliseAssessmentResult {
+  attempt: AssessmentAttempt;
+  result: AssessmentResult | null;
+  aiStatus: string;
+}
+
+export const finaliseAssessmentAttempt = async (payload: FinaliseAssessmentOptions): Promise<FinaliseAssessmentResult> => {
   try {
+    const requestBody: any = {
+      duration_seconds: payload.durationSeconds,
+    };
+    
+    // Include answers_snapshot if provided
+    if (payload.answersSnapshot && payload.answersSnapshot.length > 0) {
+      requestBody.answers_snapshot = payload.answersSnapshot;
+    }
+    
     const response = await apiClient.post<BackendResultResponse>(
       `/hr/assessments/attempts/${payload.attemptId}/finalize`,
-      {
-        answers_snapshot: payload.answersSnapshot,
-        duration_seconds: payload.durationSeconds,
-      }
+      requestBody
     );
 
     if (!response.success || !response.data?.attempt) {
@@ -361,8 +375,26 @@ export const getActiveAttempt = async (userId: string): Promise<AssessmentAttemp
   }
 };
 
-// Legacy function kept for compatibility
-export const upsertAnswer = async (payload: any): Promise<any> => {
-  console.warn('[upsertAnswer] This function is deprecated. Answers are now submitted via backend in bulk.');
-  return null;
+export const upsertAnswer = async (payload: {
+  id?: string;
+  attemptId?: string | null;
+  questionId: string;
+  selectedOptionId?: string | null;
+  userAnswerText?: string | null;
+  timeSpentSeconds?: number;
+}): Promise<any> => {
+  try {
+    // For now, just log - answers will be retrieved from attempt when finalizing
+    console.log('[upsertAnswer] Answer recorded:', {
+      questionId: payload.questionId,
+      hasAnswer: !!(payload.selectedOptionId || payload.userAnswerText),
+    });
+    
+    // TODO: Implement backend endpoint to save individual answers
+    // For now, answers are stored in frontend state and will be sent on finalize
+    return { id: payload.id || 'temp-id' };
+  } catch (error) {
+    console.error('[upsertAnswer] Failed to save answer:', error);
+    return null;
+  }
 };

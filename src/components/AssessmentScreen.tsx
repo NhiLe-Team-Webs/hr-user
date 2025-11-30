@@ -310,7 +310,13 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       throw new Error('Khong the phan tich bai lam do thieu du lieu.');
     }
 
+    if (!user || !assessment) {
+      throw new Error('Khong the phan tich bai lam do thieu du lieu.');
+    }
+
+    console.log('[runAiAnalysis] Calling finaliseAssessmentAttempt with payload:', payload);
     const result = await finaliseAssessmentAttempt(payload);
+    console.log('[runAiAnalysis] Finalize result:', result);
     finalisePayloadRef.current = null;
 
     updateActiveAttempt(result.attempt);
@@ -319,39 +325,59 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       return;
     }
 
-    try {
-      const latest = await getLatestResult(payload.userId, payload.assessmentId);
+    // Handle different AI statuses appropriately
+    if (result.aiStatus === 'completed' && result.result) {
+      // AI processing completed successfully
+      try {
+        const latest = await getLatestResult(user.id, assessment.id);
 
-      if (!isMountedRef.current) {
-        return;
-      }
+        if (!isMountedRef.current) {
+          return;
+        }
 
-      if (latest) {
-        setAssessmentResult({
-          summary: latest.summary,
-          strengths: latest.strengths,
-          developmentAreas: latest.developmentAreas,
-          skillScores: latest.skillScores,
-          recommendedRoles: latest.recommendedRoles,
-          developmentSuggestions: latest.developmentSuggestions,
-          completedAt: latest.completedAt ?? latest.createdAt,
-          hrApprovalStatus: latest.hrApprovalStatus,
-          teamFit: latest.teamFit,
-        });
-      } else {
-        setAssessmentResult(result.result);
+        if (latest) {
+          setAssessmentResult({
+            summary: latest.summary,
+            strengths: latest.strengths,
+            developmentAreas: latest.developmentAreas,
+            skillScores: latest.skillScores,
+            recommendedRoles: latest.recommendedRoles,
+            developmentSuggestions: latest.developmentSuggestions,
+            completedAt: latest.completedAt ?? latest.createdAt,
+            hrApprovalStatus: latest.hrApprovalStatus,
+            teamFit: latest.teamFit,
+          });
+        } else {
+          setAssessmentResult(result.result);
+        }
+      } catch (error) {
+        // Failed to refresh latest assessment result
+        if (isMountedRef.current) {
+          setAssessmentResult(result.result);
+        }
       }
-    } catch (error) {
-      // Failed to refresh latest assessment result
+      
       if (isMountedRef.current) {
-        setAssessmentResult(result.result);
+        onFinish(); // Only navigate when AI is truly completed
+      }
+    } else if (result.aiStatus === 'processing') {
+      // AI is currently processing, show loading state but don't navigate yet
+      console.log('[runAiAnalysis] AI is processing, waiting for completion...');
+      // Don't call onFinish, keep user on assessment screen
+      // Could show a processing indicator here
+    } else if (result.aiStatus === 'failed') {
+      // AI processing failed, show error but don't navigate
+      console.error('[runAiAnalysis] AI processing failed:', result.lastAiError);
+      // Don't call onFinish, keep user on assessment screen
+      // Could show error state here
+    } else {
+      // Fallback for any other status
+      console.warn('[runAiAnalysis] Unexpected AI status:', result.aiStatus);
+      if (isMountedRef.current) {
+        onFinish();
       }
     }
-
-    if (isMountedRef.current) {
-      onFinish();
-    }
-  }, [onFinish, setAssessmentResult, updateActiveAttempt]);
+  }, [onFinish, setAssessmentResult, updateActiveAttempt, user, assessment]);
 
   const getAiErrorMessage = useCallback(
     (error: unknown) => {
@@ -455,6 +481,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     totalStartTime,
     currentQuestionStartTime,
     tabViolations,
+    isFinalising,
   });
 
   // Update stateRef whenever state changes
@@ -467,6 +494,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       totalStartTime,
       currentQuestionStartTime,
       tabViolations,
+      isFinalising,
     };
   }, [
     currentQuestionIndex,
@@ -476,6 +504,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     totalStartTime,
     currentQuestionStartTime,
     tabViolations,
+    isFinalising,
   ]);
 
   // Track time for current question when switching questions or finishing
@@ -539,188 +568,45 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       });
       updateActiveAttempt(updatedAttempt);
 
-      const answersForGemini = questions
-        .map<FinaliseAssessmentOptions['answers'][number] | null>((question, index) => {
-          const rawValue = userAnswers[index];
-          if (typeof rawValue === 'undefined' || rawValue === null) {
-            return null;
-          }
-
-          const common = {
-            questionId: question.id,
-            questionText: question.text,
-            format: question.format,
-            options: question.options?.map((option) => option.text ?? option.optionText ?? '') ?? [],
-          } satisfies Omit<FinaliseAssessmentOptions['answers'][number], 'answerText'>;
-
-          if (question.format === 'multiple_choice') {
-            const optionIndex = Number(rawValue);
-            const option = question.options?.[optionIndex];
-            if (!option) {
-              return null;
-            }
-            return {
-              ...common,
-              answerText: option.text ?? option.optionText ?? '',
-            };
-          }
-
-          const textValue = String(rawValue).trim();
-          if (!textValue) {
-            return null;
-          }
-
-          return {
-            ...common,
-            answerText: textValue,
-          };
-        })
-        .filter(
-          (item): item is FinaliseAssessmentOptions['answers'][number] => item !== null,
-        );
-
-      // COMMENTED OUT: Create detailed answers snapshot for dashboard display
-      // REASON: Feature is currently broken and causing issues
-      // TODO: Re-enable when fixed
-      /*
-      // Use userAnswers as the primary source since it contains the latest state
-      const answersSnapshot = questions
-        .map((question, index) => {
-          // Get from userAnswers (in-memory state) first
-          let rawValue = userAnswers[index];
-          
-          // If not in userAnswers, try to get from answerRecords (persisted data)
-          if ((rawValue === undefined || rawValue === null) && answerRecords[question.id]) {
-            const record = answerRecords[question.id];
-            // For multiple choice, the value is the option ID, we need to find the index
-            if (question.format === 'multiple_choice') {
-              const optionIndex = question.options?.findIndex(opt => opt.id === record.value);
-              if (optionIndex !== undefined && optionIndex >= 0) {
-                rawValue = optionIndex;
-              }
-            } else {
-              // For text questions, the value is the text itself
-              rawValue = record.value;
-            }
-          }
-          
-          // Creating snapshot for question
-          
-          // Base info for all questions (answered or not)
-          const baseInfo = {
-            questionNumber: index + 1,
-            questionId: question.id,
-            questionText: question.text,
-            questionFormat: question.format,
-            answeredAt: new Date().toISOString(),
-          };
-
-          if (question.format === 'multiple_choice') {
-            const allOptions = question.options?.map((option, optIdx) => ({
-              index: optIdx,
-              text: option.text ?? option.optionText ?? '',
-              isCorrect: option.isCorrect ?? false,
-            })) ?? [];
-
-            // Find correct answer
-            const correctOptionIndex = allOptions.findIndex(opt => opt.isCorrect);
-            const correctAnswer = correctOptionIndex >= 0 ? allOptions[correctOptionIndex].text : null;
-
-            if (typeof rawValue === 'undefined' || rawValue === null) {
-              // Not answered
-              return {
-                ...baseInfo,
-                allOptions: allOptions.map(opt => opt.text),
-                userAnswer: null,
-                selectedOptionIndex: null,
-                correctAnswer,
-                isCorrect: false,
-              };
-            }
-
-            const optionIndex = Number(rawValue);
-            const selectedOption = question.options?.[optionIndex];
-            
-            if (!selectedOption) {
-              return {
-                ...baseInfo,
-                allOptions: allOptions.map(opt => opt.text),
-                userAnswer: null,
-                selectedOptionIndex: null,
-                correctAnswer,
-                isCorrect: false,
-              };
-            }
-
-            return {
-              ...baseInfo,
-              allOptions: allOptions.map(opt => opt.text),
-              userAnswer: selectedOption.text ?? selectedOption.optionText ?? '',
-              selectedOptionIndex: optionIndex, // This is the key fix - ensure the index is saved
-              correctAnswer,
-              isCorrect: selectedOption.isCorrect ?? false,
-            };
-          }
-
-          // Open-ended or essay questions
-          let textValue = '';
-          if (typeof rawValue === 'string') {
-            textValue = rawValue.trim();
-          } else if (rawValue !== undefined && rawValue !== null) {
-            textValue = String(rawValue).trim();
-          }
-          
-          // Processing open-ended question
-          
-          // For text questions, always return the text value even if empty
-          // This ensures the answer is properly saved in the snapshot
-          return {
-            ...baseInfo,
-            userAnswer: textValue, // Use textValue directly, not null if empty
-            allOptions: [],
-            correctAnswer: null,
-            isCorrect: null, // Cannot auto-grade open-ended questions
-          };
-        });
-      */
-      const answersSnapshot = undefined; // Disabled for now
-
-      // answersSnapshot created (DISABLED)
-
-      const rawName = user.full_name ?? user.email ?? null;
-
-      // Calculate final timings
       const now = Date.now();
-      // Add the last bit of time for the current question to the record before sending
-      const finalQuestionId = questions[currentQuestionIndex]?.id;
-      const finalTimeSpent = (now - currentQuestionStartTime) / 1000;
-      const finalQuestionTimings = {
-        ...questionTimings,
-        ...(finalQuestionId ? { [finalQuestionId]: (questionTimings[finalQuestionId] || 0) + finalTimeSpent } : {}),
-      };
-
       const durationSeconds = Math.floor((now - totalStartTime) / 1000);
-      const finalAverageSecondsPerQuestion = questions.length > 0 ? durationSeconds / questions.length : 0;
+
+      // Build answers snapshot from userAnswers
+      const answersSnapshot = questions.map((question, index) => {
+        const rawValue = userAnswers[index];
+        let userAnswer: string | null = null;
+        let selectedOptionIndex: number | null = null;
+
+        if (question.format === 'multiple_choice') {
+          if (typeof rawValue === 'number') {
+            selectedOptionIndex = rawValue;
+            const option = question.options?.[rawValue];
+            userAnswer = option?.text || option?.optionText || null;
+          }
+        } else {
+          userAnswer = typeof rawValue === 'string' ? rawValue : null;
+        }
+
+        return {
+          questionNumber: index + 1,
+          questionId: question.id,
+          questionText: question.text,
+          questionFormat: question.format,
+          userAnswer,
+          selectedOptionIndex,
+          allOptions: (question.options || []).map(opt => opt.text || opt.optionText || ''),
+          correctAnswer: question.correctAnswer || null,
+          isCorrect: null,
+          answeredAt: new Date().toISOString(),
+        };
+      });
+
+      console.log('[handleSubmit] Built answersSnapshot:', answersSnapshot.length, 'answers');
 
       finalisePayloadRef.current = {
         attemptId: updatedAttempt.id,
-        assessmentId: assessment.id,
-        userId: user.id,
-        role: role.name,
-        candidateName: rawName ? rawName.trim() : null,
-        language: lang,
-        answers: answersForGemini,
-        answersSnapshot,
-        questionTimings: finalQuestionTimings,
         durationSeconds,
-        averageSecondsPerQuestion: finalAverageSecondsPerQuestion,
-        cheatingCount: cheatingEvents.length,
-        cheatingEvents: cheatingEvents.map(event => ({
-          type: event.type,
-          questionId: event.questionId,
-          occurredAt: event.occurredAt,
-          metadata: event.metadata,
-        })),
+        answersSnapshot,
       } satisfies FinaliseAssessmentOptions;
 
       // finalisePayloadRef.current set
@@ -848,7 +734,8 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   useEffect(() => {
     const handleVisibilityChange = () => {
       // Don't track tab violations when finalising (AI is processing)
-      if (document.hidden && !isFinalising) {
+      // Use stateRef to get the current value of isFinalising
+      if (document.hidden && !stateRef.current.isFinalising) {
         // Tab hidden detected
 
         // User switched tabs or minimized window
@@ -878,7 +765,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
           tabViolations: currentState.tabViolations + 1,
         };
         sessionStorage.setItem('assessmentState', JSON.stringify(stateToSave));
-      } else if (document.hidden && isFinalising) {
+      } else if (document.hidden && stateRef.current.isFinalising) {
         // Tab hidden during AI processing - not counting as violation
       }
     };
@@ -974,6 +861,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         if (!assessmentData) {
           throw new Error('No assessment data returned');
         }
+        
         setAssessment(assessmentData as unknown as Assessment);
 
         // Only set timeLeft if we don't have a saved state
@@ -1103,7 +991,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
                     aria-disabled={isFinalising}
                     data-disabled={isFinalising ? 'true' : undefined}
                   >
-                    <span className="flex-1 text-left text-sm">{option.text}</span>
+                    <span className="flex-1 text-left text-sm">{option.text || option.optionText || ''}</span>
                   </div>
                 </motion.div>
               ))

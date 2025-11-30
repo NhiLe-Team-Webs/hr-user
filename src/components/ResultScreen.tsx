@@ -43,10 +43,10 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
     : aiAnalysisAvailable
       ? t('resultScreen.summaryFallback')
       : t('resultScreen.aiUnavailableSummary') || 'Your assessment has been submitted successfully. Our HR team will review your responses and provide feedback soon.';
-  const strengths = result.strengths;
-  const developmentAreas = result.developmentAreas;
-  const skillScores = result.skillScores;
-  const recommendedRoles = result.recommendedRoles;
+  const strengths = result.strengths ?? [];
+  const developmentAreas = result.developmentAreas ?? [];
+  const skillScores = result.skillScores ?? [];
+  const recommendedRoles = result.recommendedRoles ?? [];
   const teamFit = result.teamFit ?? [];
   const developmentSuggestions = result.developmentSuggestions;
   const hrApprovalStatus = result.hrApprovalStatus ?? 'pending';

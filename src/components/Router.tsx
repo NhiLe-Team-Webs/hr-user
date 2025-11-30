@@ -270,10 +270,17 @@ const useGlobalAssessmentResolution = () => {
           hasAttempt: !!resolution.activeAttempt,
         });
 
+        // Validate nextRoute to prevent loops
+        let validNextRoute = resolution.nextRoute;
+        if (!validNextRoute || validNextRoute === '/' || validNextRoute === '/login') {
+          console.warn('[useGlobalAssessmentResolution] Invalid nextRoute, defaulting to /role-selection:', validNextRoute);
+          validNextRoute = '/role-selection';
+        }
+
         setSelectedRole(resolution.selectedRole);
         setActiveAttempt(resolution.activeAttempt);
         setAssessmentResult(resolution.assessmentResult);
-        setNextRoute(resolution.nextRoute);
+        setNextRoute(validNextRoute);
         setResolutionStatus('ready');
       } catch (error) {
         console.error('[useGlobalAssessmentResolution] Failed to resolve assessment state:', error);
@@ -307,10 +314,12 @@ const LandingRoute = () => {
     if (resolutionStatus !== 'ready' || !nextRoute) {
       return <FullScreenLoader />;
     }
-    // Prevent infinite loop - don't redirect if already at the target route
-    if (window.location.pathname === nextRoute) {
-      return <FullScreenLoader />;
+    // Prevent infinite loop - don't redirect to / or invalid routes
+    if (nextRoute === '/' || window.location.pathname === nextRoute) {
+      console.warn('[LandingRoute] Invalid nextRoute, defaulting to /role-selection:', nextRoute);
+      return <Navigate to="/role-selection" replace />;
     }
+    console.log('[LandingRoute] Redirecting to:', nextRoute);
     return <Navigate to={nextRoute} replace />;
   }
 
@@ -331,10 +340,12 @@ const LoginRoute = () => {
     if (resolutionStatus !== 'ready' || !nextRoute) {
       return <FullScreenLoader />;
     }
-    // Prevent infinite loop - don't redirect if already at the target route
-    if (window.location.pathname === nextRoute) {
-      return <FullScreenLoader />;
+    // Prevent infinite loop - don't redirect to /login or /
+    if (nextRoute === '/login' || nextRoute === '/' || window.location.pathname === nextRoute) {
+      console.warn('[LoginRoute] Invalid nextRoute, defaulting to /role-selection:', nextRoute);
+      return <Navigate to="/role-selection" replace />;
     }
+    console.log('[LoginRoute] Redirecting to:', nextRoute);
     return <Navigate to={nextRoute} replace />;
   }
 
