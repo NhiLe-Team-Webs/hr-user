@@ -15,6 +15,7 @@ import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
 import { resolveAssessmentState, getLatestResult, ensureUser } from '@/lib/api';
 import { supabase } from '@/lib/supabaseClient';
+import { oauth, triggerAuthStateChange } from '@/lib/authClient';
 import type { Role } from '@/types/assessment';
 
 const FullScreenLoader = () => (
@@ -64,6 +65,111 @@ const ProtectedRoute: React.FC<React.PropsWithChildren> = ({ children }) => {
   return <>{children}</>;
 };
 
+const AuthCallbackRoute = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const handleCallback = async () => {
+      try {
+        const params = new URLSearchParams(location.search);
+        const hashParams = new URLSearchParams(location.hash.substring(1)); // Handle hash params too
+
+        // Check for errors first
+        const error = params.get('error') || hashParams.get('error');
+        const errorDescription = params.get('error_description') || hashParams.get('error_description');
+
+        if (error) {
+          console.error('[AuthCallbackRoute] Auth error:', error, errorDescription);
+          navigate(`/login?error=${encodeURIComponent(error)}&description=${encodeURIComponent(errorDescription || '')}`);
+          return;
+        }
+
+        // Check if we have tokens in the URL (from OAuth redirect)
+        const accessToken = params.get('access_token') || hashParams.get('access_token');
+        const refreshToken = params.get('refresh_token') || hashParams.get('refresh_token');
+        const expiresAt = params.get('expires_at') || hashParams.get('expires_at');
+
+        if (accessToken) {
+          console.log('[AuthCallbackRoute] OAuth successful, extracting tokens from URL...');
+
+          // Get user details to ensure account exists
+          // We need to do this BEFORE triggering auth state change,
+          // because AuthContext might try to validate against backend immediately
+          const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
+
+          if (userError || !user) {
+            console.error('[AuthCallbackRoute] Failed to get user from token:', userError);
+            navigate('/login?error=invalid_token');
+            return;
+          }
+
+          // Ensure user exists in backend
+          await ensureUser({
+            auth_id: user.id,
+            email: user.email || '',
+            full_name: user.user_metadata.full_name || user.user_metadata.name || user.email || '',
+            token: accessToken,
+          });
+
+          // Store tokens directly from URL parameters
+          localStorage.setItem('access_token', accessToken);
+          if (refreshToken) {
+            localStorage.setItem('refresh_token', refreshToken);
+          }
+
+          // Create session object for auth state change
+          const session = {
+            access_token: accessToken,
+            refresh_token: refreshToken || '',
+            user: {
+              id: user.id,
+              email: user.email!,
+              full_name: user.user_metadata.full_name,
+              role: 'candidate', // Default role
+              created_at: user.created_at
+            },
+            expires_at: expiresAt ? Number(expiresAt) : undefined,
+          };
+
+          triggerAuthStateChange('SIGNED_IN', session);
+          navigate('/');
+          return;
+        }
+
+        // Fallback to code exchange if no direct tokens
+        const code = params.get('code');
+        const state = params.get('state');
+
+        if (!code) {
+          console.warn('[AuthCallbackRoute] No code or tokens found in URL');
+          navigate('/login');
+          return;
+        }
+
+        console.log('[AuthCallbackRoute] Handling OAuth callback with code exchange...');
+        const session = await oauth.handleCallback(code, state || '');
+
+        if (session) {
+          console.log('[AuthCallbackRoute] OAuth successful, updating session...');
+          localStorage.setItem('access_token', session.access_token);
+          localStorage.setItem('refresh_token', session.refresh_token || '');
+
+          triggerAuthStateChange('SIGNED_IN', session);
+          navigate('/');
+        }
+      } catch (error) {
+        console.error('[AuthCallbackRoute] OAuth error:', error);
+        navigate('/login?error=oauth_failed');
+      }
+    };
+
+    void handleCallback();
+  }, [location.search, location.hash, navigate]);
+
+  return <FullScreenLoader />;
+};
+
 const Router = () => {
   const location = useLocation();
   const { status } = useAuth();
@@ -80,6 +186,7 @@ const Router = () => {
     <AnimatePresence mode="wait" initial={false}>
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<LandingRoute />} />
+        <Route path="/auth/callback" element={<AuthCallbackRoute />} />
         <Route path="/login" element={<LoginRoute />} />
         <Route
           path="/role-selection"
@@ -172,11 +279,11 @@ const useGlobalAssessmentResolution = () => {
         await ensureUser({
           auth_id: userId,
           email: currentUser?.email ?? null,
-          full_name: currentUser?.user_metadata?.name ?? currentUser?.user_metadata?.full_name ?? null,
+          full_name: currentUser?.full_name ?? null,
         });
 
         console.log('[useGlobalAssessmentResolution] User ensured, resolving state...');
-        const resolution = await resolveAssessmentState({ userId, client: supabase });
+        const resolution = await resolveAssessmentState({ userId });
 
         if (!isMounted) {
           return;
@@ -189,10 +296,17 @@ const useGlobalAssessmentResolution = () => {
           hasAttempt: !!resolution.activeAttempt,
         });
 
+        // Validate nextRoute to prevent loops
+        let validNextRoute = resolution.nextRoute;
+        if (!validNextRoute || validNextRoute === '/' || validNextRoute === '/login') {
+          console.warn('[useGlobalAssessmentResolution] Invalid nextRoute, defaulting to /role-selection:', validNextRoute);
+          validNextRoute = '/role-selection';
+        }
+
         setSelectedRole(resolution.selectedRole);
         setActiveAttempt(resolution.activeAttempt);
         setAssessmentResult(resolution.assessmentResult);
-        setNextRoute(resolution.nextRoute);
+        setNextRoute(validNextRoute);
         setResolutionStatus('ready');
       } catch (error) {
         console.error('[useGlobalAssessmentResolution] Failed to resolve assessment state:', error);
@@ -226,6 +340,12 @@ const LandingRoute = () => {
     if (resolutionStatus !== 'ready' || !nextRoute) {
       return <FullScreenLoader />;
     }
+    // Prevent infinite loop - don't redirect to / or invalid routes
+    if (nextRoute === '/' || window.location.pathname === nextRoute) {
+      console.warn('[LandingRoute] Invalid nextRoute, defaulting to /role-selection:', nextRoute);
+      return <Navigate to="/role-selection" replace />;
+    }
+    console.log('[LandingRoute] Redirecting to:', nextRoute);
     return <Navigate to={nextRoute} replace />;
   }
 
@@ -246,6 +366,12 @@ const LoginRoute = () => {
     if (resolutionStatus !== 'ready' || !nextRoute) {
       return <FullScreenLoader />;
     }
+    // Prevent infinite loop - don't redirect to /login or /
+    if (nextRoute === '/login' || nextRoute === '/' || window.location.pathname === nextRoute) {
+      console.warn('[LoginRoute] Invalid nextRoute, defaulting to /role-selection:', nextRoute);
+      return <Navigate to="/role-selection" replace />;
+    }
+    console.log('[LoginRoute] Redirecting to:', nextRoute);
     return <Navigate to={nextRoute} replace />;
   }
 
@@ -327,7 +453,7 @@ const AssessmentRoute = () => {
   // Since AssessmentScreen fetches assessment by role.name, a dummy object with name is enough?
   // Or better: Update AssessmentScreen to accept roleName.
 
-  const roleObj = selectedRole || { id: '', name: roleName, title: roleName };
+  const roleObj = selectedRole || { id: roleName || '', name: roleName || '', title: roleName || '' };
 
   return (
     <AssessmentScreen

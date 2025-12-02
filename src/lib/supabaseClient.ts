@@ -4,14 +4,10 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Supabase URL and Anon Key must be defined in the environment variables.");
+    console.warn('Missing Supabase environment variables');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storage: window.localStorage,
-  },
-});
+export const supabase = createClient(
+    supabaseUrl || '',
+    supabaseAnonKey || ''
+);

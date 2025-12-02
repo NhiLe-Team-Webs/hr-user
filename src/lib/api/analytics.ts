@@ -1,19 +1,4 @@
-import { supabase } from '@/lib/supabaseClient';
-
-interface SupabaseAnalyticsUser {
-  auth_id: string;
-  full_name: string | null;
-  band: string | null;
-}
-
-interface SupabaseAnalyticsAssessment {
-  target_role: string | null;
-}
-
-interface SupabaseAnalyticsRow {
-  assessment: SupabaseAnalyticsAssessment[] | null;
-  user: SupabaseAnalyticsUser[] | null;
-}
+import { apiClient } from '@/lib/httpClient';
 
 export interface AnalyticsCandidateSummary {
   id: string;
@@ -23,39 +8,36 @@ export interface AnalyticsCandidateSummary {
   status: 'completed';
 }
 
-export const getAnalyticsData = async (): Promise<AnalyticsCandidateSummary[]> => {
-  const { data, error } = await supabase
-    .from('interview_results')
-    .select(
-      `
-        assessment:interview_assessments(target_role),
-        user:users(auth_id, full_name, band)
-      `,
-    );
+interface BackendAnalyticsResponse {
+  success: boolean;
+  data: {
+    candidates: Array<{
+      id: string;
+      name: string;
+      role: string;
+      band: string | null;
+      status: string;
+    }>;
+  };
+}
 
-  if (error) {
-    console.error('Failed to fetch analytics data:', error);
+export const getAnalyticsData = async (): Promise<AnalyticsCandidateSummary[]> => {
+  try {
+    const response = await apiClient.get<BackendAnalyticsResponse>('/hr/analytics/candidates');
+
+    if (!response.success || !response.data?.candidates) {
+      return [];
+    }
+
+    return response.data.candidates.map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      role: candidate.role,
+      band: candidate.band,
+      status: 'completed' as const,
+    }));
+  } catch (error) {
+    console.error('Failed to fetch analytics data via backend:', error);
     throw new Error('Unable to fetch analytics data.');
   }
-
-  const rows = (data as SupabaseAnalyticsRow[] | null) ?? [];
-
-  return rows
-    .map((item) => {
-      const user = item.user?.[0] ?? null;
-      if (!user?.auth_id) {
-        return null;
-      }
-
-      const assessment = item.assessment?.[0] ?? null;
-
-      return {
-        id: user.auth_id,
-        name: user.full_name ?? 'Unknown',
-        role: assessment?.target_role ?? 'Unknown',
-        band: user.band ?? null,
-        status: 'completed' as const,
-      } satisfies AnalyticsCandidateSummary;
-    })
-    .filter((item): item is AnalyticsCandidateSummary => item !== null);
 };

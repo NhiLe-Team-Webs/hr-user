@@ -1,9 +1,10 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
   skipJson?: boolean;
+  skipAuthRedirect?: boolean;
 }
 
 export interface ApiErrorPayload {
@@ -25,7 +26,7 @@ export class ApiError extends Error {
 
 const ensureBaseUrl = () => {
   if (!API_BASE_URL) {
-    throw new Error('API base URL is not configured. Please set VITE_API_BASE_URL in the environment.');
+    throw new Error('API base URL is not configured. Please set VITE_API_URL in the environment.');
   }
 
   return API_BASE_URL;
@@ -59,11 +60,23 @@ const normaliseBody = (body: RequestOptions['body']) => {
 };
 
 const resolveHeaders = (body: RequestOptions['body']): HeadersInit => {
-  if (body instanceof FormData || body instanceof URLSearchParams || body === undefined || body === null) {
-    return {};
+  const headers: HeadersInit = {};
+
+  // Add Content-Type for JSON bodies
+  if (!(body instanceof FormData || body instanceof URLSearchParams || body === undefined || body === null)) {
+    headers['Content-Type'] = 'application/json';
   }
 
-  return { 'Content-Type': 'application/json' };
+  // Add Authorization header if token exists
+  const accessToken = localStorage.getItem('access_token');
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+    console.log('[httpClient] Adding auth token to request');
+  } else {
+    console.warn('[httpClient] No access token found in localStorage');
+  }
+
+  return headers;
 };
 
 export async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -88,6 +101,69 @@ export async function request<T = unknown>(path: string, options: RequestOptions
   const payload = isJson ? await response.json().catch(() => null) : await response.text().catch(() => null);
 
   if (!response.ok) {
+    // Handle 401 Unauthorized - token expired or invalid
+    if (response.status === 401) {
+      console.error('[httpClient] 401 Unauthorized for URL:', url);
+
+      if (options.skipAuthRedirect) {
+        throw new ApiError(response.status, payload, response.statusText);
+      }
+
+      // Try to refresh the token
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
+          const refreshUrl = `${API_BASE_URL}/hr/auth/refresh`;
+          const refreshResponse = await fetch(refreshUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json();
+            if (refreshData.success && refreshData.data?.session) {
+              // Store new tokens
+              localStorage.setItem('access_token', refreshData.data.session.access_token);
+              localStorage.setItem('refresh_token', refreshData.data.session.refresh_token);
+
+              // Retry the original request with new token
+              const retryHeaders = {
+                ...resolveHeaders(body),
+                'Authorization': `Bearer ${refreshData.data.session.access_token}`,
+                ...headers,
+              };
+
+              const retryResponse = await fetch(url, {
+                ...rest,
+                headers: retryHeaders,
+                body: normaliseBody(body),
+              });
+
+              if (retryResponse.ok) {
+                const retryContentType = retryResponse.headers.get('content-type') ?? '';
+                const retryIsJson = !skipJson && retryContentType.includes('application/json');
+                const retryPayload = retryIsJson ? await retryResponse.json().catch(() => null) : await retryResponse.text().catch(() => null);
+                return retryPayload as T;
+              }
+            }
+          }
+        } catch (refreshError) {
+          console.error('[httpClient] Token refresh failed:', refreshError);
+        }
+      }
+
+      // Clear tokens and redirect to login
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+
+      // Trigger a page reload to clear state and redirect to login
+      console.warn('[httpClient] 401 Unauthorized - tokens cleared, redirecting to login');
+      window.location.href = '/login';
+    }
+
     throw new ApiError(response.status, payload, response.statusText);
   }
 

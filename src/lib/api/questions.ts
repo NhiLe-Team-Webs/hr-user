@@ -1,164 +1,83 @@
-import { supabase } from '@/lib/supabaseClient';
+import { apiClient } from '@/lib/httpClient';
 import type { Question } from '@/types/question';
-import { mapSupabaseQuestion, MULTIPLE_CHOICE_FORMATS } from './questionMappers';
+import { mapSupabaseQuestion } from './questionMappers';
+
+interface BackendQuestionsResponse {
+  success: boolean;
+  data: {
+    questions: Array<{
+      id: string;
+      text: string;
+      format: string;
+      role: string;
+      options?: Array<{
+        id: string;
+        text: string; // Backend maps option_text to text
+        is_correct: boolean;
+      }>;
+      correct_answer?: string;
+      points: number;
+      order_index: number;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    }>;
+  };
+}
 
 export const getQuestionsByRole = async (role: string): Promise<Question[]> => {
-  const { data: assessmentData, error: assessmentError } = await supabase
-    .from('assessments')
-    .select('id')
-    .eq('target_role', role)
-    .single();
+  try {
+    const response = await apiClient.get<BackendQuestionsResponse>('/hr/questions', {
+      query: { role, include_options: true },
+    });
 
-  if (assessmentError || !assessmentData) {
-    console.error(`Failed to load assessment for role ${role}:`, assessmentError);
+    if (response.success && response.data?.questions) {
+      // Map backend questions to frontend Question format
+      return response.data.questions.map((q) => mapSupabaseQuestion({
+        id: q.id,
+        text: q.text,
+        type: 'General', // Default type
+        format: q.format as any,
+        required: true,
+        assessment_id: '', // Not needed for frontend
+        created_at: q.created_at,
+        options: q.options || [],
+      }));
+    }
+
+    return [];
+  } catch (error) {
+    console.error(`Failed to load questions for role ${role} via backend:`, error);
+    throw new Error('Khong the tai cau hoi.');
+  }
+};
+
+export const getQuestionsByIds = async (questionIds: string[]): Promise<Question[]> => {
+  if (questionIds.length === 0) {
     return [];
   }
 
-  const { data, error } = await supabase
-    .from('questions')
-    .select(
-      `
-        id,
-        text,
-        type,
-        format,
-        required,
-        assessment_id,
-        created_at,
-        options:question_options(id, option_text, is_correct)
-      `,
-    )
-    .eq('assessment_id', assessmentData.id);
+  try {
+    const response = await apiClient.get<BackendQuestionsResponse>('/hr/questions/by-ids', {
+      query: { ids: questionIds.join(',') },
+    });
 
-  if (error) {
-    console.error(`Failed to load questions for role ${role}:`, error);
-    throw new Error('Khong the tai cau hoi.');
-  }
-
-  return ((data as unknown[]) ?? []).map((row) => mapSupabaseQuestion(row as Parameters<typeof mapSupabaseQuestion>[0]));
-};
-
-export const createQuestion = async (
-  questionData: Omit<Question, 'id'>,
-  targetRole: string,
-): Promise<Question> => {
-  const { data: assessment, error: assessmentError } = await supabase
-    .from('assessments')
-    .select('id')
-    .eq('target_role', targetRole)
-    .single();
-
-  if (assessmentError || !assessment) {
-    console.error('Assessment not found for role:', targetRole, assessmentError);
-    throw new Error('Khong the tao cau hoi vi khong tim thay bai danh gia.');
-  }
-
-  const { data: inserted, error: questionError } = await supabase
-    .from('questions')
-    .insert([
-      {
-        text: questionData.text,
-        type: questionData.type,
-        format: questionData.format,
-        required: questionData.required,
-        assessment_id: assessment.id,
-      },
-    ])
-    .select(
-      `
-        id,
-        text,
-        type,
-        format,
-        required,
-        assessment_id,
-        created_at,
-        options:question_options(id, option_text, is_correct)
-      `,
-    )
-    .single();
-
-  if (questionError || !inserted) {
-    console.error('Failed to create question:', questionError);
-    throw new Error('Khong the tao cau hoi.');
-  }
-
-  const question = mapSupabaseQuestion(inserted as Parameters<typeof mapSupabaseQuestion>[0]);
-
-  if (MULTIPLE_CHOICE_FORMATS.has(questionData.format) && questionData.options?.length) {
-    const { error: optionsError } = await supabase
-      .from('question_options')
-      .insert(
-        questionData.options.map((option) => ({
-          question_id: question.id,
-          option_text: option.text,
-          is_correct: option.isCorrect ?? false,
-        })),
-      );
-
-    if (optionsError) {
-      console.error('Failed to create question options:', optionsError);
-      throw new Error('Khong the tao lua chon cho cau hoi.');
+    if (response.success && response.data?.questions) {
+      return response.data.questions.map((q) => mapSupabaseQuestion({
+        id: q.id,
+        text: q.text,
+        type: 'General',
+        format: q.format as any,
+        required: true,
+        assessment_id: '',
+        created_at: q.created_at,
+        options: q.options || [],
+      }));
     }
-  }
 
-  return question;
-};
-
-export const updateQuestion = async (questionData: Partial<Question>): Promise<void> => {
-  if (!questionData.id) {
-    throw new Error('Khong the cap nhat cau hoi khi thieu id.');
-  }
-
-  const { error: questionError } = await supabase
-    .from('questions')
-    .update({
-      text: questionData.text,
-      type: questionData.type,
-      format: questionData.format,
-      required: questionData.required,
-    })
-    .eq('id', questionData.id);
-
-  if (questionError) {
-    console.error('Failed to update question:', questionError);
-    throw new Error('Khong the cap nhat cau hoi.');
-  }
-
-  const isMultipleChoice = questionData.format ? MULTIPLE_CHOICE_FORMATS.has(questionData.format) : false;
-  const options = questionData.options ?? [];
-
-  await supabase
-    .from('question_options')
-    .delete()
-    .eq('question_id', questionData.id);
-
-  if (isMultipleChoice && options.length > 0) {
-    const { error: insertError } = await supabase
-      .from('question_options')
-      .insert(
-        options.map((option) => ({
-          question_id: questionData.id,
-          option_text: option.text,
-          is_correct: option.id === questionData.correctAnswer || option.isCorrect === true,
-        })),
-      );
-
-    if (insertError) {
-      console.error('Failed to update question options:', insertError);
-      throw new Error('Khong the cap nhat lua chon cau hoi.');
-    }
-  }
-};
-
-export const deleteQuestion = async (questionId: string): Promise<void> => {
-  const { error } = await supabase
-    .from('questions')
-    .delete()
-    .eq('id', questionId);
-
-  if (error) {
-    console.error('Failed to delete question:', error);
-    throw new Error('Khong the xoa cau hoi.');
+    return [];
+  } catch (error) {
+    console.error('Failed to load questions by ids via backend:', error);
+    throw new Error('Khong the tai danh sach cau hoi.');
   }
 };

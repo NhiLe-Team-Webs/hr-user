@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FcGoogle } from 'react-icons/fc';
 import { Eye, EyeOff } from 'lucide-react';
@@ -6,7 +6,6 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useLanguage } from '../hooks/useLanguage';
-import { useNavigate } from 'react-router-dom';
 import { toast } from './ui/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -14,12 +13,12 @@ type OAuthProvider = 'google' | 'linkedin_oidc';
 
 const LoginScreen: React.FC = () => {
   const { t } = useLanguage();
-  const navigate = useNavigate();
-  const { status, user, signInWithProvider, signUp, signInWithPassword } = useAuth();
+  const { status, signInWithProvider, signUp, signInWithPassword, resendVerificationEmail } = useAuth();
   const [isLoading, setIsLoading] = useState({
     google: false,
     linkedin: false,
     emailAuth: false,
+    resend: false,
   });
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [formData, setFormData] = useState({
@@ -33,17 +32,8 @@ const LoginScreen: React.FC = () => {
     password: '',
   });
   const [showPassword, setShowPassword] = useState(false);
-  const hasRedirectedRef = useRef(false);
-
-  useEffect(() => {
-    if (status === 'ready' && user && !hasRedirectedRef.current) {
-      hasRedirectedRef.current = true;
-      toast({
-        title: t('loginScreen.alreadySignedIn'),
-      });
-      navigate('/result', { replace: true });
-    }
-  }, [status, user, navigate, t]);
+  // LoginRoute in Router.tsx handles redirecting logged-in users
+  // No need to manually redirect here to avoid loops
 
   const handleOAuthLogin = async (provider: OAuthProvider) => {
     const key = provider === 'google' ? 'google' : 'linkedin';
@@ -96,7 +86,7 @@ const LoginScreen: React.FC = () => {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -106,7 +96,7 @@ const LoginScreen: React.FC = () => {
     try {
       if (mode === 'register') {
         const { error } = await signUp(formData.email, formData.password, formData.name);
-        
+
         if (error) {
           if (error === 'duplicate_email') {
             toast({
@@ -141,11 +131,12 @@ const LoginScreen: React.FC = () => {
           toast({
             title: t('loginScreen.registrationSuccess'),
           });
-          navigate('/role-selection', { replace: true });
+          // Router will handle navigation based on assessment state
+          // Don't navigate manually to avoid redirect loops
         }
       } else {
         const { error } = await signInWithPassword(formData.email, formData.password);
-        
+
         if (error) {
           if (error === 'invalid_credentials') {
             toast({
@@ -153,12 +144,30 @@ const LoginScreen: React.FC = () => {
               description: t('loginScreen.loginError'),
               variant: 'destructive',
             });
-          } else if (error === 'email_not_confirmed') {
+          } else if (error === 'email_not_verified' || error === 'email_not_confirmed') {
             toast({
               title: t('loginScreen.emailConfirmationTitle'),
               description: t('loginScreen.emailNotConfirmedError'),
               variant: 'destructive',
-              duration: 8000, // Show longer for important message
+              duration: 10000,
+              action: (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-white text-black border-white hover:bg-gray-100"
+                  onClick={async () => {
+                    setIsLoading((prev) => ({ ...prev, resend: true }));
+                    await resendVerificationEmail(formData.email);
+                    setIsLoading((prev) => ({ ...prev, resend: false }));
+                    toast({
+                      title: t('loginScreen.emailSent'),
+                      description: t('loginScreen.checkInbox'),
+                    });
+                  }}
+                >
+                  {t('loginScreen.resendButton')}
+                </Button>
+              ),
             });
           } else {
             toast({
@@ -168,8 +177,8 @@ const LoginScreen: React.FC = () => {
             });
           }
         } else {
-          // Login successful, navigate to role selection
-          navigate('/role-selection', { replace: true });
+          // Login successful, Router will handle navigation based on assessment state
+          // Don't navigate manually to avoid redirect loops
         }
       }
     } catch (error) {
@@ -268,8 +277,8 @@ const LoginScreen: React.FC = () => {
           {isLoading.emailAuth
             ? t('loginScreen.loading')
             : mode === 'register'
-            ? t('loginScreen.registerButton')
-            : t('loginScreen.loginButton')}
+              ? t('loginScreen.registerButton')
+              : t('loginScreen.loginButton')}
         </Button>
 
         <button

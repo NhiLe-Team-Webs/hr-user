@@ -66,4 +66,17 @@ export interface AssessmentAttemptRow {
 
 export type QuestionsByRole = Record<string, Question[]>;
 
+export interface AnswerSnapshotItem {
+  questionNumber: number;
+  questionId: string;
+  questionText: string;
+  questionFormat: string;
+  userAnswer: string | null;
+  selectedOptionIndex?: number | null;
+  allOptions: string[];
+  correctAnswer?: string | null;
+  isCorrect?: boolean | null;
+  answeredAt: string;
+}
+
 export type { AssessmentAttempt };
