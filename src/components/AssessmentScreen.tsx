@@ -326,7 +326,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     }
 
     // Handle different AI statuses appropriately
-    if (result.aiStatus === 'completed' && result.result) {
+    if (result.aiStatus === 'completed') {
       // AI processing completed successfully
       try {
         const latest = await getLatestResult(user.id, assessment.id);
@@ -347,16 +347,22 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
             hrApprovalStatus: latest.hrApprovalStatus,
             teamFit: latest.teamFit,
           });
-        } else {
+        } else if (result.result) {
           setAssessmentResult(result.result);
+        } else {
+          console.warn('[runAiAnalysis] AI status completed but no result found in response or DB.');
         }
       } catch (error) {
         // Failed to refresh latest assessment result
         if (isMountedRef.current) {
-          setAssessmentResult(result.result);
+          if (result.result) {
+            setAssessmentResult(result.result);
+          } else {
+            console.error('[runAiAnalysis] Failed to fetch latest result and no result in response:', error);
+          }
         }
       }
-      
+
       if (isMountedRef.current) {
         onFinish(); // Only navigate when AI is truly completed
       }
@@ -367,7 +373,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       // Could show a processing indicator here
     } else if (result.aiStatus === 'failed') {
       // AI processing failed, show error but don't navigate
-      console.error('[runAiAnalysis] AI processing failed:', result.lastAiError);
+      console.error('[runAiAnalysis] AI processing failed:', result.attempt.lastAiError);
       // Don't call onFinish, keep user on assessment screen
       // Could show error state here
     } else {
@@ -833,6 +839,35 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
     void ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: optionIndex });
   };
 
+  // Save state to sessionStorage whenever important state changes
+  useEffect(() => {
+    if (isFinalising) return;
+
+    const stateToSave = {
+      currentQuestionIndex,
+      userAnswers,
+      timeLeft,
+      questionTimings,
+      totalStartTime,
+      currentQuestionStartTime,
+      tabViolations,
+      roleName: role.name,
+      attemptId: activeAttempt?.id,
+    };
+    sessionStorage.setItem('assessmentState', JSON.stringify(stateToSave));
+  }, [
+    currentQuestionIndex,
+    userAnswers,
+    timeLeft,
+    questionTimings,
+    totalStartTime,
+    currentQuestionStartTime,
+    tabViolations,
+    role.name,
+    activeAttempt?.id,
+    isFinalising
+  ]);
+
   const navigateQuestion = useCallback(
     async (direction: number) => {
       updateQuestionTiming();
@@ -845,12 +880,40 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         overrideRawValue: currentAnswer,
       });
 
+      // Explicitly save state before navigation (redundant but safe)
+      const stateToSave = {
+        currentQuestionIndex,
+        userAnswers,
+        timeLeft,
+        questionTimings,
+        totalStartTime,
+        currentQuestionStartTime,
+        tabViolations,
+        roleName: role.name,
+        attemptId: activeAttempt?.id,
+      };
+      sessionStorage.setItem('assessmentState', JSON.stringify(stateToSave));
+
       const newIndex = currentQuestionIndex + direction;
       if (newIndex >= 0 && newIndex < questions.length) {
         navigate(`/assessment/${role.name}/q/${newIndex + 1}`);
       }
     },
-    [currentQuestionIndex, questions.length, ensureAnswerPersisted, updateQuestionTiming, navigate, role.name, userAnswers],
+    [
+      currentQuestionIndex,
+      questions.length,
+      ensureAnswerPersisted,
+      updateQuestionTiming,
+      navigate,
+      role.name,
+      userAnswers,
+      timeLeft,
+      questionTimings,
+      totalStartTime,
+      currentQuestionStartTime,
+      tabViolations,
+      activeAttempt?.id
+    ],
   );
 
   // Fetch assessment data from API
@@ -861,7 +924,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         if (!assessmentData) {
           throw new Error('No assessment data returned');
         }
-        
+
         setAssessment(assessmentData as unknown as Assessment);
 
         // Only set timeLeft if we don't have a saved state

@@ -48,7 +48,7 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
   const skillScores = result.skillScores ?? [];
   const recommendedRoles = result.recommendedRoles ?? [];
   const teamFit = result.teamFit ?? [];
-  const developmentSuggestions = result.developmentSuggestions;
+  const developmentSuggestions = result.developmentSuggestions ?? [];
   const hrApprovalStatus = result.hrApprovalStatus ?? 'pending';
   const isHrApproved = hrApprovalStatus === 'approved';
   const isHrRejected = hrApprovalStatus === 'rejected';
@@ -141,7 +141,7 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
               ))
             ) : (
               <p className="text-sm text-slate-500">
-                {!aiAnalysisAvailable 
+                {!aiAnalysisAvailable
                   ? (t('resultScreen.pendingHrReview') || 'Pending HR review')
                   : t('resultScreen.strengthsEmpty')}
               </p>
@@ -161,14 +161,19 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
               {t('resultScreen.teamFitDescription') || 'Các vị trí được đề xuất dựa trên kết quả đánh giá của bạn.'}
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
-              {teamFit.map((team) => (
-                <span
-                  key={team}
-                  className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm"
-                >
-                  {team}
-                </span>
-              ))}
+              {teamFit.map((team) => {
+                const teamName = typeof team === 'string' ? team : team.name;
+                const teamId = typeof team === 'string' ? null : team.id;
+
+                return (
+                  <span
+                    key={teamId || teamName}
+                    className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm"
+                  >
+                    {teamName}
+                  </span>
+                );
+              })}
             </div>
           </section>
         )}
@@ -206,7 +211,7 @@ const ResultScreen = ({ result, onTryoutClick }: ResultScreenProps) => {
             </div>
           ) : (
             <p className="mt-4 text-sm text-slate-500">
-              {!aiAnalysisAvailable 
+              {!aiAnalysisAvailable
                 ? (t('resultScreen.pendingHrReview') || 'Pending HR review')
                 : t('resultScreen.skillScoresEmpty')}
             </p>

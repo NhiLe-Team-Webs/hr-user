@@ -86,9 +86,9 @@ export const getAssessment = async (role: string, roleId?: string) => {
       return null;
     }
 
-    // Fetch questions for this role
+    // Fetch questions for this assessment
     const questionsResponse = await apiClient.get<any>('/hr/questions', {
-      query: { role, include_options: 'true' },
+      query: { assessment_id: assessment.id, include_options: 'true' },
     });
 
     const questions = questionsResponse.success && questionsResponse.data?.questions
@@ -161,13 +161,21 @@ interface EnsureUserPayload {
   auth_id: string;
   email: string;
   full_name: string;
+  token?: string;
 }
 
 export const ensureUser = async (payload: EnsureUserPayload): Promise<void> => {
-  console.log('[ensureUser] Creating/updating user via backend:', payload);
+  console.log('[ensureUser] Creating/updating user via backend:', { ...payload, token: payload.token ? '***' : undefined });
 
   try {
-    await apiClient.post('/hr/candidates/ensure', payload);
+    const { token, ...body } = payload;
+    const options: any = {};
+
+    if (token) {
+      options.headers = { Authorization: `Bearer ${token}` };
+    }
+
+    await apiClient.post('/hr/candidates/ensure', body, options);
     console.log('[ensureUser] User ensured successfully via backend');
   } catch (error) {
     console.error('[ensureUser] Failed to ensure user via backend:', error);
@@ -278,17 +286,33 @@ export interface FinaliseAssessmentResult {
   aiStatus: string;
 }
 
+const mapBackendResultToFrontend = (backendResult: any): AssessmentResult | null => {
+  if (!backendResult) return null;
+  return {
+    summary: backendResult.summary || backendResult.ai_summary || null,
+    strengths: backendResult.strengths || [],
+    developmentAreas: backendResult.development_areas || backendResult.weaknesses || [],
+    skillScores: backendResult.skill_scores || [],
+    recommendedRoles: backendResult.recommended_roles || [],
+    developmentSuggestions: backendResult.development_suggestions || [],
+    completedAt: backendResult.created_at || null,
+    hrApprovalStatus: backendResult.hr_approval_status || 'pending',
+    teamFit: backendResult.team_fit || [],
+    aiAnalysisAvailable: backendResult.ai_analysis_available !== false,
+  };
+};
+
 export const finaliseAssessmentAttempt = async (payload: FinaliseAssessmentOptions): Promise<FinaliseAssessmentResult> => {
   try {
     const requestBody: any = {
       duration_seconds: payload.durationSeconds,
     };
-    
+
     // Include answers_snapshot if provided
     if (payload.answersSnapshot && payload.answersSnapshot.length > 0) {
       requestBody.answers_snapshot = payload.answersSnapshot;
     }
-    
+
     const response = await apiClient.post<BackendResultResponse>(
       `/hr/assessments/attempts/${payload.attemptId}/finalize`,
       requestBody
@@ -301,7 +325,7 @@ export const finaliseAssessmentAttempt = async (payload: FinaliseAssessmentOptio
     // Note: Result might be null if AI processing is async
     return {
       attempt: mapAssessmentAttempt(response.data.attempt),
-      result: response.data.result, // We might need to map this if format differs
+      result: mapBackendResultToFrontend(response.data.result),
       aiStatus: response.data.attempt.ai_status || 'completed',
     };
   } catch (error) {
@@ -326,7 +350,7 @@ export interface LatestResultRecord {
   completedAt: string | null;
   insightLocale: string | null;
   createdAt: string;
-  teamFit: string[];
+  teamFit: string[] | { id: string; name: string }[];
 }
 
 export const getLatestResult = async (
@@ -389,7 +413,7 @@ export const upsertAnswer = async (payload: {
       questionId: payload.questionId,
       hasAnswer: !!(payload.selectedOptionId || payload.userAnswerText),
     });
-    
+
     // TODO: Implement backend endpoint to save individual answers
     // For now, answers are stored in frontend state and will be sent on finalize
     return { id: payload.id || 'temp-id' };

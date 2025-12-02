@@ -14,6 +14,7 @@ import { useAssessment } from '@/contexts/AssessmentContext';
 import { useLanguage } from '@/hooks/useLanguage';
 import ErrorPage from '../pages/ErrorPage';
 import { resolveAssessmentState, getLatestResult, ensureUser } from '@/lib/api';
+import { supabase } from '@/lib/supabaseClient';
 import { oauth, triggerAuthStateChange } from '@/lib/authClient';
 import type { Role } from '@/types/assessment';
 
@@ -92,6 +93,25 @@ const AuthCallbackRoute = () => {
         if (accessToken) {
           console.log('[AuthCallbackRoute] OAuth successful, extracting tokens from URL...');
 
+          // Get user details to ensure account exists
+          // We need to do this BEFORE triggering auth state change,
+          // because AuthContext might try to validate against backend immediately
+          const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
+
+          if (userError || !user) {
+            console.error('[AuthCallbackRoute] Failed to get user from token:', userError);
+            navigate('/login?error=invalid_token');
+            return;
+          }
+
+          // Ensure user exists in backend
+          await ensureUser({
+            auth_id: user.id,
+            email: user.email || '',
+            full_name: user.user_metadata.full_name || user.user_metadata.name || user.email || '',
+            token: accessToken,
+          });
+
           // Store tokens directly from URL parameters
           localStorage.setItem('access_token', accessToken);
           if (refreshToken) {
@@ -102,7 +122,13 @@ const AuthCallbackRoute = () => {
           const session = {
             access_token: accessToken,
             refresh_token: refreshToken || '',
-            user: null, // Will be populated by AuthContext
+            user: {
+              id: user.id,
+              email: user.email!,
+              full_name: user.user_metadata.full_name,
+              role: 'candidate', // Default role
+              created_at: user.created_at
+            },
             expires_at: expiresAt ? Number(expiresAt) : undefined,
           };
 

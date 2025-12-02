@@ -55,7 +55,7 @@ export interface AssessmentResult {
   developmentSuggestions: string[];
   completedAt: string | null;
   hrApprovalStatus: HrApprovalStatus;
-  teamFit: string[] | null;
+  teamFit: string[] | { id: string; name: string }[] | null;
   aiAnalysisAvailable?: boolean; // Indicates if AI analysis was successful
 }
 

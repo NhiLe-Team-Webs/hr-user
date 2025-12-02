@@ -76,7 +76,7 @@
     "switchToLogin": "Already have an account? Sign in",
     "switchToRegister": "Don't have an account? Create one",
     "orDivider": "OR",
-    "registrationSuccess": "Account created successfully! Please sign in.",
+    "registrationSuccess": "Account created successfully!.",
     "registrationError": "Could not create account. Please try again.",
     "duplicateEmailError": "This email is already registered. Please sign in instead.",
     "weakPasswordError": "Password must be at least 8 characters long.",
