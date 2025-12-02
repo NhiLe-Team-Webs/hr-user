@@ -2,7 +2,8 @@ import type { Question, QuestionOption } from '@/types/question';
 
 export interface SupabaseQuestionOptionData {
   id: string;
-  option_text: string;
+  text: string; // Backend maps option_text to text
+  option_text?: string; // Keep for backwards compatibility
   is_correct: boolean;
 }
 
@@ -35,8 +36,8 @@ export const mapSupabaseQuestion = (question: SupabaseQuestionData): Question =>
   const format = normaliseQuestionFormat(question.format);
   const options: QuestionOption[] | undefined = question.options?.map((option) => ({
     id: option.id,
-    text: option.option_text,
-    optionText: option.option_text,
+    text: option.text || option.option_text || '', // Use text first, fallback to option_text
+    optionText: option.text || option.option_text || '',
     isCorrect: option.is_correct,
   }));
 

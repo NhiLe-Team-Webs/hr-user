@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabaseClient';
+import { apiClient } from '@/lib/httpClient';
 import type { LandingPage } from '@/types/landingPage';
 
 const landingPageFallbacks = {
@@ -16,27 +16,24 @@ const applyLandingPageFallbacks = (payload: LandingPage): LandingPage => ({
   error_cta_link: payload.error_cta_link ?? landingPageFallbacks.error_cta_link,
 });
 
+interface BackendLandingPageResponse {
+  success: boolean;
+  data: {
+    content: LandingPage;
+  };
+}
+
 export const getLandingPageData = async (): Promise<LandingPage> => {
-  const { data, error } = await supabase
-    .from('landing_page')
-    .select('*')
-    .single();
+  try {
+    const response = await apiClient.get<BackendLandingPageResponse>('/hr/landing-page');
 
-  if (error) {
-    console.error('Failed to load landing page data:', error);
+    if (response.success && response.data?.content) {
+      return applyLandingPageFallbacks(response.data.content);
+    }
+
+    throw new Error('Invalid response from backend');
+  } catch (error) {
+    console.error('Failed to load landing page data via backend:', error);
     throw new Error('Khong the tai du lieu landing page.');
-  }
-
-  return applyLandingPageFallbacks(data as LandingPage);
-};
-
-export const updateLandingPageData = async (payload: Partial<LandingPage>): Promise<void> => {
-  const { error } = await supabase
-    .from('landing_page')
-    .update(payload);
-
-  if (error) {
-    console.error('Failed to update landing page data:', error);
-    throw new Error('Khong the cap nhat landing page.');
   }
 };
