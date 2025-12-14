@@ -1,7 +1,7 @@
 # HR User Frontend
 
-This is the candidate-facing application for the HR system.
-
+This is the candidate-facing application for the HR system
+ 
 ## Architecture & API
 
 This application has been migrated to use a centralized backend API (`nquoc-backend`) for all business logic and data persistence.
