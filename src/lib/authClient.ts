@@ -46,10 +46,7 @@ export const auth = {
         expires_at: response.data.session.expires_at,
       };
     } catch (error: any) {
-      console.error('Login error:', error);
-      if (error?.payload) {
-        console.error('Login error details:', error.payload);
-      }
+      console.error('Login error details (FULL):', JSON.stringify(error?.payload || error, null, 2));
       throw error;
     }
   },
@@ -74,10 +71,7 @@ export const auth = {
         expires_at: response.data.session.expires_at,
       };
     } catch (error: any) {
-      console.error('Registration error:', error);
-      if (error?.payload) {
-        console.error('Registration error details:', error.payload);
-      }
+      console.error('Registration error details (FULL):', JSON.stringify(error?.payload || error, null, 2));
       throw error;
     }
   },
