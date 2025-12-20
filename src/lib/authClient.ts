@@ -45,8 +45,11 @@ export const auth = {
         user: response.data.user,
         expires_at: response.data.session.expires_at,
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      if (error?.payload) {
+        console.error('Login error details:', error.payload);
+      }
       throw error;
     }
   },
@@ -70,8 +73,11 @@ export const auth = {
         user: response.data.user,
         expires_at: response.data.session.expires_at,
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Registration error:', error);
+      if (error?.payload) {
+        console.error('Registration error details:', error.payload);
+      }
       throw error;
     }
   },
@@ -168,10 +174,13 @@ export const oauth = {
    */
   signInWithProvider: async (provider: 'google' | 'linkedin_oidc') => {
     try {
+      const redirectTo = `${import.meta.env.VITE_SITE_URL || window.location.origin}/auth/callback`;
+      console.log('[authClient] OAuth redirecting to:', redirectTo);
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo,
           skipBrowserRedirect: false,
         },
       });

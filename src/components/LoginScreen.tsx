@@ -120,11 +120,21 @@ const LoginScreen: React.FC = () => {
             setMode('login');
             setFormData({ name: '', email: '', password: '' });
           } else {
-            toast({
-              title: t('loginScreen.error'),
-              description: t('loginScreen.registrationError'),
-              variant: 'destructive',
-            });
+            // Check if it's a known error code, otherwise display the message
+            const knownErrors = ['duplicate_email', 'signups_disabled', 'email_confirmation_required'];
+            if (!knownErrors.includes(error) && error !== 'validation_error') {
+              toast({
+                title: t('loginScreen.error'),
+                description: error, // Display the raw error message from backend
+                variant: 'destructive',
+              });
+            } else {
+              toast({
+                title: t('loginScreen.error'),
+                description: t('loginScreen.registrationError'),
+                variant: 'destructive',
+              });
+            }
           }
         } else {
           // Registration successful and user is logged in
@@ -168,6 +178,13 @@ const LoginScreen: React.FC = () => {
                   {t('loginScreen.resendButton')}
                 </Button>
               ),
+            });
+          } else if (error && error !== 'toFriendlyMessage') {
+            // Show backend error if available
+            toast({
+              title: t('loginScreen.error'),
+              description: error,
+              variant: 'destructive',
             });
           } else {
             toast({

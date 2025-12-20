@@ -189,14 +189,21 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
       if (error && typeof error === 'object' && 'payload' in error) {
         const payload = (error as { payload?: { error?: { code?: string; message?: string } } }).payload;
         if (payload?.error?.code === 'VALIDATION_FAILED') {
-          if (payload.error.message?.includes('already exists')) {
+          if (payload.error.message?.includes('already exists') || payload.error.message?.includes('existing user')) {
             return { error: 'duplicate_email' };
           }
+          // Return the actual validation message for other validation errors
+          return { error: payload.error.message || 'validation_error' };
+        }
+
+        if (payload?.error?.message) {
+          return { error: payload.error.message };
         }
       }
 
       return { error: toFriendlyMessage() };
     }
+
   };
 
   const signInWithPassword = async (email: string, password: string) => {
@@ -225,7 +232,7 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
 
       // Handle specific error cases from backend
       if (error && typeof error === 'object' && 'payload' in error) {
-        const payload = (error as { payload?: { error?: { code?: string } } }).payload;
+        const payload = (error as { payload?: { error?: { code?: string; message?: string } } }).payload;
         if (payload?.error?.code === 'AUTH_INVALID') {
           return { error: 'invalid_credentials' };
         }
@@ -236,6 +243,10 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
 
         if (payload?.error?.code === 'EMAIL_NOT_VERIFIED') {
           return { error: 'email_not_verified' };
+        }
+
+        if (payload?.error?.message) {
+          return { error: payload.error.message };
         }
       }
 
