@@ -163,9 +163,15 @@ export const AuthProvider = ({ children }: PropsWithChildren<unknown>) => {
 
   const signUp = async (email: string, password: string, fullName?: string) => {
     try {
-      const backendSession = await auth.signUp(email, password, fullName || '');
+      const result = await auth.signUp(email, password, fullName || '');
 
-      if (backendSession) {
+      if ('emailConfirmationRequired' in result && result.emailConfirmationRequired) {
+        return { error: 'email_confirmation_required' };
+      }
+
+      const backendSession = result as Session;
+
+      if (backendSession && backendSession.access_token) {
         // Store tokens in localStorage
         localStorage.setItem('access_token', backendSession.access_token);
         localStorage.setItem('refresh_token', backendSession.refresh_token || '');
