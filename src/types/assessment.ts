@@ -18,7 +18,7 @@ export interface Option {
   isCorrect?: boolean;
 }
 
-export type AnswerValue = string | number;
+export type AnswerValue = string | number | number[];
 
 export type UserAnswers = Record<number, AnswerValue>;
 

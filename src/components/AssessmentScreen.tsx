@@ -62,7 +62,7 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   const currentQuestion = questions[currentQuestionIndex];
   const currentAnswer = userAnswers[currentQuestionIndex];
   const hasAnsweredCurrent = currentQuestion?.format === 'multiple_choice'
-    ? typeof currentAnswer !== 'undefined'
+    ? (Array.isArray(currentAnswer) ? currentAnswer.length > 0 : typeof currentAnswer !== 'undefined')
     : typeof currentAnswer === 'string' && currentAnswer.trim().length > 0;
   const [tabViolations, setTabViolations] = useState(0);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -119,13 +119,27 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
       let persistedValue = '';
 
       if (question.format === 'multiple_choice') {
-        const optionIndex = Number(rawValue);
-        const selectedOption = question.options?.[optionIndex];
-        if (!selectedOption) {
-          return;
+        // Handle both single selection (number) and multi-selection (number[])
+        if (Array.isArray(rawValue)) {
+          // Multi-selection: store as comma-separated option IDs
+          const selectedIds = rawValue
+            .map(idx => question.options?.[idx]?.id)
+            .filter(Boolean);
+          if (selectedIds.length === 0) {
+            return;
+          }
+          persistedValue = selectedIds.join(',');
+          userAnswerText = selectedIds.join(',');
+        } else {
+          // Single selection (backward compatibility)
+          const optionIndex = Number(rawValue);
+          const selectedOption = question.options?.[optionIndex];
+          if (!selectedOption) {
+            return;
+          }
+          selectedOptionId = selectedOption.id;
+          persistedValue = selectedOptionId;
         }
-        selectedOptionId = selectedOption.id;
-        persistedValue = selectedOptionId;
       } else {
         const textValue = String(rawValue);
         userAnswerText = textValue;
@@ -584,7 +598,16 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
         let selectedOptionIndex: number | null = null;
 
         if (question.format === 'multiple_choice') {
-          if (typeof rawValue === 'number') {
+          if (Array.isArray(rawValue)) {
+            // Multi-selection
+            selectedOptionIndex = null; // Not applicable for multi-select
+            const selectedTexts = rawValue.map(idx => {
+              const option = question.options?.[idx];
+              return option?.text || option?.optionText || '';
+            }).filter(Boolean);
+            userAnswer = selectedTexts.join(', ');
+          } else if (typeof rawValue === 'number') {
+            // Single selection (backward compatibility)
             selectedOptionIndex = rawValue;
             const option = question.options?.[rawValue];
             userAnswer = option?.text || option?.optionText || null;
@@ -831,12 +854,37 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
   }, [timeLeft, finishAssessment]);
 
   const handleOptionSelect = (optionIndex: number) => {
-    // handleOptionSelect called
-    setUserAnswers(prev => ({
-      ...prev,
-      [currentQuestionIndex]: optionIndex
-    }));
-    void ensureAnswerPersisted(currentQuestionIndex, { overrideRawValue: optionIndex });
+    // handleOptionSelect called - toggle selection
+    setUserAnswers(prev => {
+      const currentSelections = prev[currentQuestionIndex];
+      let newSelections: number[];
+
+      if (Array.isArray(currentSelections)) {
+        // Already an array - toggle the option
+        if (currentSelections.includes(optionIndex)) {
+          // Remove from selection
+          newSelections = currentSelections.filter(idx => idx !== optionIndex);
+        } else {
+          // Add to selection
+          newSelections = [...currentSelections, optionIndex].sort((a, b) => a - b);
+        }
+      } else if (typeof currentSelections === 'number') {
+        // Convert single selection to array and toggle
+        if (currentSelections === optionIndex) {
+          newSelections = [];
+        } else {
+          newSelections = [currentSelections, optionIndex].sort((a, b) => a - b);
+        }
+      } else {
+        // No previous selection - start with this option
+        newSelections = [optionIndex];
+      }
+
+      return {
+        ...prev,
+        [currentQuestionIndex]: newSelections
+      };
+    });
   };
 
   // Save state to sessionStorage whenever important state changes
@@ -1041,11 +1089,16 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
                   whileTap={{ scale: 0.98 }}
                 >
                   <div
-                    className={`relative flex items-center p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 font-medium text-lg min-h-[70px]
-                    ${userAnswers[currentQuestionIndex] === index
-                        ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
-                        : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
-                      } ${isFinalising ? 'pointer-events-none opacity-60' : ''}`}
+                    className={`relative flex items-center gap-4 p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 font-medium text-lg min-h-[70px]
+                    ${(() => {
+                        const currentSelections = userAnswers[currentQuestionIndex];
+                        const isSelected = Array.isArray(currentSelections)
+                          ? currentSelections.includes(index)
+                          : currentSelections === index;
+                        return isSelected
+                          ? 'bg-blue-100 border-blue-500 text-blue-800 shadow-lg shadow-blue-200'
+                          : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md';
+                      })()} ${isFinalising ? 'pointer-events-none opacity-60' : ''}`}
                     onClick={() => {
                       if (!isFinalising) {
                         handleOptionSelect(index);
@@ -1054,6 +1107,30 @@ const AssessmentScreen: React.FC<AssessmentScreenProps> = ({ role, questionIndex
                     aria-disabled={isFinalising}
                     data-disabled={isFinalising ? 'true' : undefined}
                   >
+                    {/* Checkbox indicator */}
+                    <div className={`flex-shrink-0 w-6 h-6 rounded border-2 transition-all duration-200 flex items-center justify-center
+                      ${(() => {
+                        const currentSelections = userAnswers[currentQuestionIndex];
+                        const isSelected = Array.isArray(currentSelections)
+                          ? currentSelections.includes(index)
+                          : currentSelections === index;
+                        return isSelected
+                          ? 'bg-blue-500 border-blue-500'
+                          : 'bg-white border-gray-300';
+                      })()}`}
+                    >
+                      {(() => {
+                        const currentSelections = userAnswers[currentQuestionIndex];
+                        const isSelected = Array.isArray(currentSelections)
+                          ? currentSelections.includes(index)
+                          : currentSelections === index;
+                        return isSelected && (
+                          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        );
+                      })()}
+                    </div>
                     <span className="flex-1 text-left text-sm">{option.text || option.optionText || ''}</span>
                   </div>
                 </motion.div>
